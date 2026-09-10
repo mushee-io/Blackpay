@@ -1,6 +1,6 @@
 {
   "name": "blackpay",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -18,7 +18,8 @@
     "proof:down": "docker compose stop proof-server",
     "privacy:check": "node scripts/check-private-leaks.mjs",
     "live:verify": "node scripts/verify-live.mjs",
-    "release:check": "npm run check && npm run build",
+    "security:audit": "npm audit --omit=dev --audit-level=high",
+    "release:check": "npm run security:audit && npm run check && npm run build",
     "check": "npm run typecheck && npm run privacy:check"
   },
   "dependencies": {
@@ -36,20 +37,21 @@
     "@midnight-ntwrk/midnight-js-types": "4.1.1",
     "@midnight-ntwrk/midnight-js-utils": "4.1.1",
     "@midnight-ntwrk/wallet-sdk-address-format": "3.1.2",
-    "buffer": "^6.0.3",
-    "next": "^15.5.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "buffer": "6.0.3",
+    "next": "15.5.25",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "esbuild": "^0.25.9",
-    "typescript": "^5.8.0"
+    "@types/node": "22.18.3",
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9",
+    "esbuild": "0.25.9",
+    "typescript": "5.9.2"
   },
   "overrides": {
     "@midnight-ntwrk/ledger-v8": "8.1.0",
-    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0"
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0",
+    "postcss": "8.5.23"
   }
 }
