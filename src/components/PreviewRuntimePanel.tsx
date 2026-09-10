@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { ConnectedWallet } from "@/lib/midnight/wallet";
+import { useState } from "react";
+import { getConnectedMidnightWallet } from "@/lib/midnight/wallet";
 import { getMidnightPublicConfig } from "@/lib/midnight/network";
 import {
   exportBlackpayEncryptedBackup,
@@ -24,7 +24,7 @@ function saveJsonFile(name: string, value: unknown): void {
   URL.revokeObjectURL(url);
 }
 
-export function PreviewRuntimePanel({ wallet }: { wallet: ConnectedWallet | null }) {
+export function PreviewRuntimePanel() {
   const config = getMidnightPublicConfig();
   const [privateStatePassword, setPrivateStatePassword] = useState("");
   const [contractAddress, setContractAddress] = useState(config.contractAddress);
@@ -33,8 +33,6 @@ export function PreviewRuntimePanel({ wallet }: { wallet: ConnectedWallet | null
   const [notice, setNotice] = useState("");
   const [failure, setFailure] = useState("");
   const [status, setStatus] = useState(getBlackpayRuntimeStatus());
-
-  useEffect(() => setStatus(getBlackpayRuntimeStatus()), [wallet]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -52,7 +50,7 @@ export function PreviewRuntimePanel({ wallet }: { wallet: ConnectedWallet | null
 
   async function initialize(mode: "deploy" | "join") {
     await run(async () => {
-      if (!wallet) throw new Error("Connect Lace/Midnight wallet first");
+      const wallet = getConnectedMidnightWallet();
       if (!privateStatePassword) throw new Error("Enter a private-state encryption password");
       const result = await initializeBlackpayPreview({
         wallet,
@@ -82,11 +80,11 @@ export function PreviewRuntimePanel({ wallet }: { wallet: ConnectedWallet | null
   }
 
   return (
-    <section className="panel wide" aria-label="Midnight Preview runtime">
+    <section className="panel wide previewRuntime" aria-label="Midnight Preview runtime">
       <div className="panelNumber">LIVE</div>
       <h3>Midnight Preview runtime</h3>
       <p>
-        Real Compact bindings, wallet-delegated proving, encrypted private state and indexer-confirmed contract calls. No demo fallback.
+        First connect the wallet in the Blackpay header. This runtime then uses real Compact bindings, wallet-delegated proving, encrypted private state and indexer-confirmed calls.
       </p>
 
       <div className="twoCol">
@@ -112,10 +110,10 @@ export function PreviewRuntimePanel({ wallet }: { wallet: ConnectedWallet | null
       </div>
 
       <div className="buttonRow">
-        <button type="button" className="primary" disabled={busy || !wallet} onClick={() => initialize("join")}>
+        <button type="button" className="primary" disabled={busy} onClick={() => initialize("join")}>
           JOIN VERIFIED CONTRACT
         </button>
-        <button type="button" className="secondary" disabled={busy || !wallet} onClick={() => initialize("deploy")}>
+        <button type="button" className="secondary" disabled={busy} onClick={() => initialize("deploy")}>
           DEPLOY NEW BLACKPAY
         </button>
       </div>
