@@ -1,5 +1,5 @@
 import { BlackpayApp } from "@/components/BlackpayApp";
-import { PreviewRuntimePanel } from "@/components/PreviewRuntimePanel";
+import { PreviewRuntimeClientOnly } from "@/components/PreviewRuntimeClientOnly";
 import { Milestones712 } from "@/components/Milestones712";
 
 export default function HomePage() {
@@ -7,7 +7,7 @@ export default function HomePage() {
     <>
       <BlackpayApp />
       <section className="shell liveShell">
-        <PreviewRuntimePanel />
+        <PreviewRuntimeClientOnly />
       </section>
       <Milestones712 />
     </>
