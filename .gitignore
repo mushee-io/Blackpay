@@ -5,6 +5,10 @@ out/
 .env.local
 .env.*.local
 contract/build/
+public/keys/
+public/zkir/
+public/compact/blackpay.generated.js
+public/compact/contract-info.json
 *.log
 .DS_Store
 coverage/
