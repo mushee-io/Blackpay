@@ -180,7 +180,7 @@ export circuit addEmployee(employeeId: Bytes<32>): [] {
         status: EmployeeStatus.Active,
         revision: 1,
     }));
-    activeEmployeeCount = activeEmployeeCount + 1;
+    activeEmployeeCount = (activeEmployeeCount + 1) as Uint<32>;
 }
 
 export circuit updateEmployee(employeeId: Bytes<32>): [] {
@@ -198,7 +198,7 @@ export circuit updateEmployee(employeeId: Bytes<32>): [] {
     employees.insert(id, disclose(EmployeeEntry {
         commitment: commitment,
         status: EmployeeStatus.Active,
-        revision: existing.revision + 1,
+        revision: (existing.revision + 1) as Uint<32>,
     }));
 }
 
@@ -213,9 +213,9 @@ export circuit removeEmployee(employeeId: Bytes<32>): [] {
     employees.insert(id, disclose(EmployeeEntry {
         commitment: existing.commitment,
         status: EmployeeStatus.Inactive,
-        revision: existing.revision + 1,
+        revision: (existing.revision + 1) as Uint<32>,
     }));
-    activeEmployeeCount = activeEmployeeCount - 1;
+    activeEmployeeCount = (activeEmployeeCount - 1) as Uint<32>;
 }
 
 export circuit createPayRun(
