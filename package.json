@@ -12,6 +12,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "compact:compile": "compact compile contract/payroll.compact contract/build",
+    "proof:up": "docker compose up -d --wait proof-server",
+    "proof:down": "docker compose stop proof-server",
     "privacy:check": "node scripts/check-private-leaks.mjs",
     "check": "npm run typecheck && npm run privacy:check"
   },
