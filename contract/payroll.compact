@@ -18,6 +18,11 @@ export enum PayRunStatus {
     Executed,
 }
 
+export enum DisclosureKind {
+    EmploymentActive,
+    IncomeAtLeast,
+}
+
 export new type AdminSecret = Bytes<32>;
 export new type AdminPublicKey = Bytes<32>;
 
@@ -53,6 +58,15 @@ export struct IncomeProofEntry {
     satisfied: Boolean;
 }
 
+export struct DisclosureEntry {
+    employeeCommitment: Bytes<32>;
+    kind: DisclosureKind;
+    valueHash: Bytes<32>;
+    verifierId: Bytes<32>;
+    expiresAt: Uint<64>;
+    revoked: Boolean;
+}
+
 witness getAdminSecret(): AdminSecret;
 witness getEmployeeRecord(): PrivateEmployeeRecord;
 witness getPayRunRecord(): PrivatePayRunRecord;
@@ -66,6 +80,7 @@ export ledger activeEmployeeCount: Uint<32>;
 export ledger employees: Map<Bytes<32>, EmployeeEntry>;
 export ledger payRuns: Map<Bytes<32>, PayRunEntry>;
 export ledger incomeProofs: Map<Bytes<32>, IncomeProofEntry>;
+export ledger disclosures: Map<Bytes<32>, DisclosureEntry>;
 
 constructor() {
     admin = disclose(deriveAdminPublicKey(getAdminSecret()));
@@ -119,6 +134,23 @@ export pure circuit payRunCommitment(
     ]);
 }
 
+circuit verifiedPrivateEmployee(employeeId: Bytes<32>): [EmployeeEntry, PrivateEmployeeRecord] {
+    const id = disclose(employeeId);
+    assert(employees.member(id), "Employee does not exist");
+    const entry = employees.lookup(id);
+    assert(entry.status == EmployeeStatus.Active, "Employee is inactive");
+
+    const record = getEmployeeRecord();
+    const currentCommitment = employeeCommitment(
+        employeeId,
+        record.salaryMinor,
+        record.payoutCommitment,
+        record.salt
+    );
+    assert(currentCommitment == entry.commitment, "Private employee record does not match the registered commitment");
+    return [entry, record];
+}
+
 export circuit createWorkspace(
     newWorkspaceId: Bytes<32>,
     newCurrencyId: Bytes<32>,
@@ -140,6 +172,7 @@ export circuit addEmployee(employeeId: Bytes<32>): [] {
 
     const record = getEmployeeRecord();
     assert(record.salaryMinor > 0, "Salary must be greater than zero");
+    assert(record.payoutCommitment != default<Bytes<32>>, "Payout commitment must not be empty");
     const commitment = employeeCommitment(employeeId, record.salaryMinor, record.payoutCommitment, record.salt);
 
     employees.insert(id, disclose(EmployeeEntry {
@@ -159,6 +192,7 @@ export circuit updateEmployee(employeeId: Bytes<32>): [] {
     assert(existing.status == EmployeeStatus.Active, "Employee is inactive");
     const record = getEmployeeRecord();
     assert(record.salaryMinor > 0, "Salary must be greater than zero");
+    assert(record.payoutCommitment != default<Bytes<32>>, "Payout commitment must not be empty");
     const commitment = employeeCommitment(employeeId, record.salaryMinor, record.payoutCommitment, record.salt);
 
     employees.insert(id, disclose(EmployeeEntry {
@@ -191,6 +225,7 @@ export circuit createPayRun(
 ): [] {
     assertAdmin();
     assert(workspaceCreated, "Create the payroll workspace first");
+    assert(period > 0, "Pay period must be greater than zero");
     assert(employeeCount > 0, "Pay run requires at least one employee");
     assert(employeeCount <= activeEmployeeCount, "Pay run employee count exceeds active employees");
     const id = disclose(payRunId);
@@ -198,6 +233,7 @@ export circuit createPayRun(
 
     const record = getPayRunRecord();
     assert(record.totalPayrollMinor > 0, "Payroll total must be greater than zero");
+    assert(record.paymentsRoot != default<Bytes<32>>, "Payments root must not be empty");
     const commitment = payRunCommitment(payRunId, record.totalPayrollMinor, record.paymentsRoot, record.salt);
 
     payRuns.insert(id, disclose(PayRunEntry {
@@ -231,7 +267,7 @@ export circuit finalizePayRun(payRunId: Bytes<32>, transactionCommitment: Bytes<
     assert(payRuns.member(id), "Pay run does not exist");
     const run = payRuns.lookup(id);
     assert(run.status == PayRunStatus.Approved, "Pay run must be approved before execution");
-    assert(transactionCommitment != default<Bytes<32>>, "Settlement transaction commitment is required");
+    assert(transactionCommitment != default<Bytes<32>>, "Settlement commitment must not be empty");
 
     payRuns.insert(id, disclose(PayRunEntry {
         commitment: run.commitment,
@@ -248,14 +284,7 @@ export circuit proveIncomeAtLeast(
     nonce: Bytes<32>
 ): Bytes<32> {
     assert(thresholdMinor > 0, "Income threshold must be greater than zero");
-    const id = disclose(employeeId);
-    assert(employees.member(id), "Employee does not exist");
-    const entry = employees.lookup(id);
-    assert(entry.status == EmployeeStatus.Active, "Employee is inactive");
-
-    const record = getEmployeeRecord();
-    const currentCommitment = employeeCommitment(employeeId, record.salaryMinor, record.payoutCommitment, record.salt);
-    assert(currentCommitment == entry.commitment, "Private salary record does not match the registered commitment");
+    const [entry, record] = verifiedPrivateEmployee(employeeId);
     assert(record.salaryMinor >= thresholdMinor, "Income threshold is not satisfied");
 
     const thresholdHash = persistentHash<Uint<64>>(thresholdMinor);
@@ -273,4 +302,98 @@ export circuit proveIncomeAtLeast(
     }));
 
     return proofId;
+}
+
+export circuit createIncomeDisclosure(
+    employeeId: Bytes<32>,
+    thresholdMinor: Uint<64>,
+    verifierId: Bytes<32>,
+    expiresAt: Uint<64>,
+    nonce: Bytes<32>
+): Bytes<32> {
+    assert(thresholdMinor > 0, "Income threshold must be greater than zero");
+    assert(verifierId != default<Bytes<32>>, "Verifier identifier must not be empty");
+    assert(expiresAt > 0, "Disclosure expiry must be greater than zero");
+
+    const [entry, record] = verifiedPrivateEmployee(employeeId);
+    assert(record.salaryMinor >= thresholdMinor, "Income threshold is not satisfied");
+
+    const thresholdHash = persistentHash<Uint<64>>(thresholdMinor);
+    const expiryHash = persistentHash<Uint<64>>(expiresAt);
+    const disclosureId = persistentHash<Vector<6, Bytes<32>>>([
+        pad(32, "blackpay:disclose:income:v1"),
+        employeeId,
+        thresholdHash,
+        verifierId,
+        expiryHash,
+        nonce
+    ]);
+
+    assert(!disclosures.member(disclose(disclosureId)), "Disclosure already exists");
+    disclosures.insert(disclose(disclosureId), disclose(DisclosureEntry {
+        employeeCommitment: entry.commitment,
+        kind: DisclosureKind.IncomeAtLeast,
+        valueHash: thresholdHash,
+        verifierId: verifierId,
+        expiresAt: expiresAt,
+        revoked: false,
+    }));
+
+    return disclosureId;
+}
+
+export circuit createEmploymentDisclosure(
+    employeeId: Bytes<32>,
+    verifierId: Bytes<32>,
+    expiresAt: Uint<64>,
+    nonce: Bytes<32>
+): Bytes<32> {
+    assert(verifierId != default<Bytes<32>>, "Verifier identifier must not be empty");
+    assert(expiresAt > 0, "Disclosure expiry must be greater than zero");
+
+    const [entry, record] = verifiedPrivateEmployee(employeeId);
+    assert(record.salaryMinor > 0, "Private employee record is invalid");
+    const activeHash = persistentHash<Boolean>(true);
+    const expiryHash = persistentHash<Uint<64>>(expiresAt);
+    const disclosureId = persistentHash<Vector<5, Bytes<32>>>([
+        pad(32, "blackpay:disclose:employment:v1"),
+        employeeId,
+        verifierId,
+        expiryHash,
+        nonce
+    ]);
+
+    assert(!disclosures.member(disclose(disclosureId)), "Disclosure already exists");
+    disclosures.insert(disclose(disclosureId), disclose(DisclosureEntry {
+        employeeCommitment: entry.commitment,
+        kind: DisclosureKind.EmploymentActive,
+        valueHash: activeHash,
+        verifierId: verifierId,
+        expiresAt: expiresAt,
+        revoked: false,
+    }));
+
+    return disclosureId;
+}
+
+export circuit revokeDisclosure(
+    employeeId: Bytes<32>,
+    disclosureId: Bytes<32>
+): [] {
+    const [entry, record] = verifiedPrivateEmployee(employeeId);
+    assert(record.salaryMinor > 0, "Private employee record is invalid");
+    const id = disclose(disclosureId);
+    assert(disclosures.member(id), "Disclosure does not exist");
+    const existing = disclosures.lookup(id);
+    assert(existing.employeeCommitment == entry.commitment, "Disclosure does not belong to this private employee record");
+    assert(!existing.revoked, "Disclosure is already revoked");
+
+    disclosures.insert(id, disclose(DisclosureEntry {
+        employeeCommitment: existing.employeeCommitment,
+        kind: existing.kind,
+        valueHash: existing.valueHash,
+        verifierId: existing.verifierId,
+        expiresAt: existing.expiresAt,
+        revoked: true,
+    }));
 }
