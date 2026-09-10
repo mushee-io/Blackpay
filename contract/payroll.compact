@@ -70,8 +70,8 @@ export ledger incomeProofs: Map<Bytes<32>, IncomeProofEntry>;
 constructor() {
     admin = disclose(deriveAdminPublicKey(getAdminSecret()));
     workspaceCreated = false;
-    workspaceId = pad(32, "");
-    currencyId = pad(32, "");
+    workspaceId = default<Bytes<32>>;
+    currencyId = default<Bytes<32>>;
     payrollFrequency = PayrollFrequency.Monthly;
     activeEmployeeCount = 0;
 }
@@ -205,7 +205,7 @@ export circuit createPayRun(
         period: period,
         employeeCount: employeeCount,
         status: PayRunStatus.Draft,
-        transactionCommitment: pad(32, ""),
+        transactionCommitment: default<Bytes<32>>,
     }));
 }
 
@@ -231,6 +231,7 @@ export circuit finalizePayRun(payRunId: Bytes<32>, transactionCommitment: Bytes<
     assert(payRuns.member(id), "Pay run does not exist");
     const run = payRuns.lookup(id);
     assert(run.status == PayRunStatus.Approved, "Pay run must be approved before execution");
+    assert(transactionCommitment != default<Bytes<32>>, "Settlement transaction commitment is required");
 
     payRuns.insert(id, disclose(PayRunEntry {
         commitment: run.commitment,
@@ -246,6 +247,7 @@ export circuit proveIncomeAtLeast(
     thresholdMinor: Uint<64>,
     nonce: Bytes<32>
 ): Bytes<32> {
+    assert(thresholdMinor > 0, "Income threshold must be greater than zero");
     const id = disclose(employeeId);
     assert(employees.member(id), "Employee does not exist");
     const entry = employees.lookup(id);
