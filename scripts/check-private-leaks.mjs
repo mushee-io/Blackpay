@@ -1,0 +1,48 @@
+import { readFile, readdir } from "node:fs/promises";
+import { extname, join } from "node:path";
+
+const ROOTS = ["src", "contract"];
+const TEXT_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs", ".compact"]);
+const forbidden = [
+  { pattern: /console\.log\s*\(/, reason: "console.log is forbidden in privacy-sensitive code" },
+  { pattern: /NEXT_PUBLIC_[A-Z0-9_]*(SALARY|SALT|MNEMONIC|SEED|PRIVATE_KEY|WITNESS)/, reason: "private values must never use NEXT_PUBLIC_*" },
+  { pattern: /(demo|mock)[_-]?(proof|transaction|deployment)[_-]?fallback/i, reason: "fake proof/transaction fallbacks are forbidden" },
+];
+
+async function walk(dir) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "build" || entry.name === "managed") continue;
+      files.push(...(await walk(path)));
+    } else if (TEXT_EXTENSIONS.has(extname(entry.name))) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+const violations = [];
+for (const root of ROOTS) {
+  let files = [];
+  try {
+    files = await walk(root);
+  } catch {
+    continue;
+  }
+  for (const file of files) {
+    const source = await readFile(file, "utf8");
+    for (const rule of forbidden) {
+      if (rule.pattern.test(source)) violations.push(`${file}: ${rule.reason}`);
+    }
+  }
+}
+
+if (violations.length > 0) {
+  process.stderr.write(`Blackpay privacy check failed:\n${violations.map((v) => `- ${v}`).join("\n")}\n`);
+  process.exit(1);
+}
+
+process.stdout.write("Blackpay privacy check: PASS\n");
