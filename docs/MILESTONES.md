@@ -3,8 +3,23 @@
 Status definitions:
 
 - **CODED**: implementation is present in `main`.
-- **VERIFY**: code exists but must still pass Compact/app build or live Preview validation.
+- **VERIFY**: code compiles/builds but still requires live Midnight Preview validation.
 - **LIVE**: verified against the configured Midnight environment. Nothing is marked LIVE without observed evidence.
+
+## Current CI evidence
+
+Observed on GitHub Actions after the M7–M12 build:
+
+```text
+Node dependency install       PASS
+TypeScript                    PASS
+Privacy scanner               PASS
+Next.js production build      PASS
+Compact toolchain selection   PASS (0.31.1)
+Compact payroll compile       PASS
+```
+
+The repository is therefore **build-clean**, but it is not yet marked LIVE because wallet signing, deployment, shielded settlement, and proof/disclosure transactions still require an observed Midnight Preview run.
 
 ## Milestone 1 — Foundation + Midnight environment
 
@@ -23,11 +38,15 @@ Implemented:
 - privacy scanner
 - fail-closed contract gateway
 
-Remaining verification:
-- observe green CI app build
-- compile Compact with toolchain 0.31.1
-- connect a real Preview wallet
-- configure live Preview node/indexer endpoints
+Verified:
+- app typecheck/build PASS
+- privacy scan PASS
+- Compact 0.31.1 selection PASS
+- Compact compile PASS
+
+Remaining live verification:
+- real Preview wallet connection
+- live Preview node/indexer/proof-server configuration
 
 ## Milestone 2 — Employer payroll workspace
 
@@ -40,9 +59,9 @@ Implemented:
 - public frequency configuration
 - employer workspace UI action
 
-Remaining verification:
+Remaining live verification:
 - generated binding adapter
-- Preview transaction
+- Preview workspace transaction
 
 ## Milestone 3 — Private employee registry
 
@@ -50,15 +69,15 @@ Remaining verification:
 
 Implemented:
 - salary held in private witness record
-- payout destination represented by a commitment in the Compact witness
+- payout destination represented by a commitment
 - 32-byte private salt
 - public employee commitment only
 - active/inactive lifecycle
 - revision counter
-- volatile in-memory witness handling in the current browser session
-- add/update/remove contract circuits
+- volatile in-memory witness handling
+- add/update/remove circuits
 
-Remaining verification:
+Remaining live verification:
 - generated binding adapter
 - Midnight private-state-provider migration
 - Preview proof/transaction
@@ -78,8 +97,10 @@ Implemented:
 - transaction commitment field
 - create/approve/finalize UI workflow
 
-Remaining verification:
-- compile and circuit tests
+Verified:
+- Compact 0.31.1 compile PASS
+
+Remaining live verification:
 - Preview deployment and state transitions
 
 ## Milestone 5 — Private salary payments
@@ -97,10 +118,10 @@ Implemented:
 Important integrity boundary:
 - the Compact contract does not yet cryptographically prove that the submitted wallet transaction exactly matches the private pay-run commitment. See `SECURITY.md`.
 
-Remaining verification:
-- real supported token type on Preview
+Remaining live verification:
+- supported payroll token on Preview
 - funded employer wallet
-- multi-recipient shielded transfer test
+- multi-recipient shielded transfer
 - stronger settlement-to-pay-run binding
 
 ## Milestone 6 — Proof of salary / income
@@ -108,18 +129,18 @@ Remaining verification:
 **Status: CODED / VERIFY**
 
 Implemented:
-- `proveIncomeAtLeast` Compact circuit
-- private salary retrieved from witness
-- private record recomputed and checked against the registered employee commitment
+- `proveIncomeAtLeast` circuit
+- private record recomputed against employee commitment
 - threshold comparison inside the circuit
-- exact salary never written to proof ledger state
-- public proof ID, disclosed threshold, employee commitment and satisfied result
-- proof generation UI action
+- exact salary excluded from proof ledger state
+- proof generation UI
 
-Remaining verification:
-- generated binding adapter
-- positive threshold proof on Preview
-- negative threshold rejection test
+Verified:
+- circuit compiles with Compact 0.31.1
+
+Remaining live verification:
+- positive threshold proof
+- negative threshold rejection
 - independent verifier flow
 
 ## Milestone 7 — Selective disclosure
@@ -127,21 +148,24 @@ Remaining verification:
 **Status: CODED / VERIFY**
 
 Implemented:
-- `DisclosureKind` protocol model
-- verifier-scoped income-threshold disclosure circuit
-- verifier-scoped active-employment disclosure circuit
-- disclosure expiry metadata
+- `DisclosureKind` model
+- verifier-scoped income-threshold disclosure
+- verifier-scoped active-employment disclosure
+- expiry metadata
 - nonce-derived disclosure IDs
 - revocation circuit
-- disclosure gateway methods
+- TypeScript gateway methods
 - disclosure creation/revocation UI
-- exact salary excluded from disclosure ledger state
+- exact salary excluded from disclosure state
 
-Remaining verification:
-- Compact 0.31.1 compile
+Verified:
+- selective-disclosure circuits compile with Compact 0.31.1
+- TypeScript/app build PASS
+
+Remaining live verification:
 - generated binding adapter methods
-- positive/negative Preview proof tests
-- verifier-side expiry enforcement using authoritative network time
+- positive/negative Preview disclosure tests
+- authoritative expiry enforcement in verifier flow
 - revoked-disclosure verification test
 
 ## Milestone 8 — Employer dashboard
@@ -149,16 +173,19 @@ Remaining verification:
 **Status: CODED / VERIFY**
 
 Implemented:
-- product navigation covering overview, people, pay runs, proofs, employee, audit and API
-- workspace/payroll controls from Milestones 2–6
-- disclosure controls from Milestone 7
+- employer product navigation
+- workspace/people/pay-run/proof controls
+- selective-disclosure controls
 - deployment-readiness state
 - fail-closed contract configuration display
 
-Remaining verification:
-- hydrate dashboard counts/state from the public data provider
+Verified:
+- Next.js production build PASS
+
+Remaining live verification:
+- hydrate counts/state from Midnight public data provider
 - Preview indexer refresh/reconnect tests
-- pagination for larger employee/pay-run sets
+- large-dataset pagination
 
 ## Milestone 9 — Employee portal + private payslips
 
@@ -168,16 +195,20 @@ Implemented:
 - private payslip domain model
 - volatile in-memory payslip store
 - duplicate protection per pay-run/transaction pair
-- employee-reference scoped payslip lookup
+- employee-reference scoped lookup
 - gross/net/currency/period/status display
-- settlement transaction reference requirement
+- real settlement transaction reference requirement
 - no localStorage/sessionStorage persistence
 
-Remaining verification:
-- automatic payslip issuance from the successful M5 payment path
+Verified:
+- TypeScript/app build PASS
+- privacy scanner PASS
+
+Remaining live verification:
+- automatic payslip issuance from successful M5 settlement
 - encrypted Midnight private-state persistence
 - employee-owned recovery/access model
-- finalized status binding to the on-chain pay-run lifecycle
+- finalized status binding to on-chain pay-run lifecycle
 
 ## Milestone 10 — Security + live release gate
 
@@ -186,18 +217,20 @@ Remaining verification:
 Implemented:
 - `npm run release:check`
 - `npm run live:verify`
-- required deployment-env validation
-- required Compact artifact validation
-- proof server/indexer/node reachability preflight
-- explicit statement that infrastructure preflight does not equal live payroll verification
-- existing privacy scanner and fail-closed gateway retained
+- deployment-env validation
+- Compact artifact validation
+- proof-server/indexer/node reachability preflight
+- explicit separation between infrastructure readiness and live payroll verification
+- privacy scanner and fail-closed gateway retained
 
-Remaining verification:
-- green app CI
-- green Compact 0.31.1 compiler job
+Verified:
+- app CI PASS
+- Compact CI PASS
+
+Remaining live verification:
 - Preview wallet signing
 - contract deployment provenance
-- full end-to-end private payroll test
+- full private payroll test
 
 ## Milestone 11 — Compliance + audit controls
 
@@ -207,14 +240,18 @@ Implemented:
 - redacted public audit bundle schema
 - strict 32-byte proof/disclosure/transaction reference validation
 - duplicate-reference removal
-- privacy statement embedded in every bundle
+- embedded privacy statement
 - salary, recipient, salt and witness fields excluded by type design
 - audit bundle UI
 
-Remaining verification:
-- independent verifier lookup against the Midnight indexer
-- signed/exportable audit bundle envelope
-- organization-level auditor authorization policy
+Verified:
+- TypeScript/app build PASS
+- privacy scanner PASS
+
+Remaining live verification:
+- independent indexer verifier lookup
+- signed/exportable audit envelope
+- auditor authorization policy
 
 ## Milestone 12 — API + SDK integrations
 
@@ -222,18 +259,21 @@ Remaining verification:
 
 Implemented:
 - typed `BlackpaySdk` façade over the real contract gateway
-- SDK methods for workspace, employee, pay-run, income proof and selective disclosure flows
+- SDK calls for workspace, employee, pay-run, proof and selective disclosure
 - `GET /api/v1/status` public-safe readiness endpoint
 - no simulated SDK gateway
 - integration/privacy documentation
 
-Remaining verification:
+Verified:
+- TypeScript/app build PASS
+
+Remaining live verification:
 - generated Compact adapter registration
 - public verifier/read SDK
 - versioned package publishing
-- partner integration test on Midnight Preview
+- partner integration test on Preview
 
-## Definition of Milestones 1–12 complete
+## Definition of LIVE
 
 Milestones move from **CODED / VERIFY** to **LIVE** only when all relevant checks are observed:
 
