@@ -1,6 +1,6 @@
 {
   "name": "blackpay",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,9 +9,11 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:live": "bash scripts/compile-compact.sh && npm run compact:assets && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "compact:compile": "compact compile contract/payroll.compact contract/build",
+    "compact:assets": "node scripts/prepare-compact-assets.mjs",
     "proof:up": "docker compose up -d --wait proof-server",
     "proof:down": "docker compose stop proof-server",
     "privacy:check": "node scripts/check-private-leaks.mjs",
@@ -43,6 +45,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.25.9",
     "typescript": "^5.8.0"
   },
   "overrides": {
