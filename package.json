@@ -1,6 +1,6 @@
 {
   "name": "blackpay",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -22,7 +22,9 @@
   "dependencies": {
     "@midnight-ntwrk/compact-runtime": "0.16.0",
     "@midnight-ntwrk/dapp-connector-api": "4.0.1",
+    "@midnight-ntwrk/ledger-v8": "8.1.0",
     "@midnight-ntwrk/midnight-js-contracts": "4.1.1",
+    "@midnight-ntwrk/midnight-js-dapp-connector-proof-provider": "4.1.1",
     "@midnight-ntwrk/midnight-js-fetch-zk-config-provider": "4.1.1",
     "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.1.1",
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.1.1",
