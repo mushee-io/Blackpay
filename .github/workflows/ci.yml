@@ -39,3 +39,16 @@ jobs:
           compact --version
       - name: Compile Blackpay contract
         run: compact compile contract/payroll.compact contract/build
+      - name: Assert generated contract assets
+        shell: bash
+        run: |
+          test -d contract/build
+          test -n "$(find contract/build -type f -print -quit)"
+          find contract/build -maxdepth 3 -type f -print | sort
+      - name: Upload compiled Compact artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackpay-compact-0.31.1
+          path: contract/build
+          if-no-files-found: error
+          retention-days: 14
