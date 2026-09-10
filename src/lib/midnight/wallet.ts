@@ -27,6 +27,8 @@ type MidnightWindow = Window & {
   midnight?: Record<string, InitialAPI>;
 };
 
+let activeConnection: ConnectedWallet | null = null;
+
 function injectedWallets(): Record<string, InitialAPI> {
   if (typeof window === "undefined") return {};
   return (window as MidnightWindow).midnight ?? {};
@@ -97,8 +99,7 @@ export async function connectMidnightWallet(walletId?: string): Promise<Connecte
   ]);
 
   setNetworkId(status.networkId);
-
-  return {
+  activeConnection = {
     id: selected.id,
     name: selected.name,
     api,
@@ -106,10 +107,19 @@ export async function connectMidnightWallet(walletId?: string): Promise<Connecte
     networkId: status.networkId,
     addresses,
   };
+  return activeConnection;
+}
+
+export function getConnectedMidnightWallet(): ConnectedWallet {
+  if (!activeConnection) throw new Error("Connect a Midnight wallet from the Blackpay header first");
+  return activeConnection;
 }
 
 export async function assertWalletStillConnected(wallet: ConnectedWallet): Promise<void> {
   const status = await wallet.api.getConnectionStatus();
-  if (status.status !== "connected") throw new Error("Midnight wallet session is no longer connected");
+  if (status.status !== "connected") {
+    if (activeConnection?.id === wallet.id) activeConnection = null;
+    throw new Error("Midnight wallet session is no longer connected");
+  }
   assertRequestedNetwork(status.networkId, wallet.networkId);
 }
