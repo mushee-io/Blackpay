@@ -8,6 +8,7 @@ import {
   getBlackpayRuntimeStatus,
   initializeBlackpayPreview,
 } from "@/lib/midnight/live-runtime";
+import { restoreBlackpayEncryptedBackup } from "@/lib/midnight/recovery";
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown Blackpay Preview error";
@@ -29,6 +30,7 @@ export function PreviewRuntimePanel() {
   const [privateStatePassword, setPrivateStatePassword] = useState("");
   const [contractAddress, setContractAddress] = useState(config.contractAddress);
   const [backupPassword, setBackupPassword] = useState("");
+  const [backupFile, setBackupFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [failure, setFailure] = useState("");
@@ -79,12 +81,41 @@ export function PreviewRuntimePanel() {
     });
   }
 
+  async function restoreBackup() {
+    await run(async () => {
+      const wallet = getConnectedMidnightWallet();
+      if (!backupFile) throw new Error("Choose a Blackpay encrypted backup file");
+      if (!privateStatePassword) throw new Error("Enter the private-state password to use on this browser");
+      if (!backupPassword) throw new Error("Enter the backup decryption password");
+      if (backupFile.size > 5_000_000) throw new Error("Recovery file is unexpectedly large and was rejected");
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await backupFile.text());
+      } catch {
+        throw new Error("Recovery file is not valid JSON");
+      }
+
+      const result = await restoreBlackpayEncryptedBackup({
+        wallet,
+        storagePassword: privateStatePassword,
+        backupPassword,
+        backup: parsed,
+      });
+      setContractAddress(result.contractAddress);
+      setPrivateStatePassword("");
+      setBackupPassword("");
+      setBackupFile(null);
+      setNotice(`Encrypted recovery restored and contract verified. Role: ${result.role}.`);
+    });
+  }
+
   return (
     <section className="panel wide previewRuntime" aria-label="Midnight Preview runtime">
       <div className="panelNumber">LIVE</div>
       <h3>Midnight Preview runtime</h3>
       <p>
-        First connect the wallet in the Blackpay header. This runtime then uses real Compact bindings, wallet-delegated proving, encrypted private state and indexer-confirmed calls.
+        First connect the wallet in the Blackpay header. This runtime uses real Compact bindings, wallet-delegated proving, encrypted private state and indexer-confirmed calls.
       </p>
 
       <div className="twoCol">
@@ -126,23 +157,37 @@ export function PreviewRuntimePanel() {
         </div>
       )}
 
-      {status.ready && (
-        <div className="twoCol backupRow">
-          <label>
-            Backup encryption password
-            <input
-              type="password"
-              value={backupPassword}
-              onChange={(event) => setBackupPassword(event.target.value)}
-              placeholder="Use a separate strong password"
-              autoComplete="new-password"
-            />
-          </label>
+      <div className="twoCol backupRow">
+        <label>
+          Encrypted backup password
+          <input
+            type="password"
+            value={backupPassword}
+            onChange={(event) => setBackupPassword(event.target.value)}
+            placeholder="Separate strong backup password"
+            autoComplete="new-password"
+          />
+        </label>
+        <label>
+          Recovery backup file
+          <input
+            type="file"
+            accept="application/json,.json"
+            onChange={(event) => setBackupFile(event.target.files?.[0] ?? null)}
+          />
+        </label>
+      </div>
+
+      <div className="buttonRow">
+        {status.ready && (
           <button type="button" className="secondary" disabled={busy} onClick={exportBackup}>
             EXPORT ENCRYPTED RECOVERY BACKUP
           </button>
-        </div>
-      )}
+        )}
+        <button type="button" className="secondary" disabled={busy} onClick={restoreBackup}>
+          RESTORE ENCRYPTED BACKUP
+        </button>
+      </div>
 
       {(notice || failure) && <div className={failure ? "message error" : "message success"}>{failure || notice}</div>}
     </section>
