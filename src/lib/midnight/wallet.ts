@@ -1,104 +1,115 @@
+import type { Configuration, ConnectedAPI, InitialAPI } from "@midnight-ntwrk/dapp-connector-api";
+import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import { getMidnightPublicConfig } from "./network";
-
-export type ShieldedTransferOutput = {
-  kind: "shielded";
-  tokenType: string;
-  value: bigint;
-  recipient: string;
-};
-
-export type WalletConnectionStatus = {
-  networkId?: string;
-  [key: string]: unknown;
-};
-
-export interface ConnectedMidnightWallet {
-  getConnectionStatus?: () => Promise<WalletConnectionStatus | string>;
-  getShieldedAddresses?: () => Promise<unknown>;
-  getUnshieldedAddress?: () => Promise<string>;
-  makeTransfer: (outputs: ShieldedTransferOutput[]) => Promise<unknown>;
-  submitTransaction: (transaction: unknown) => Promise<unknown>;
-}
-
-export interface InjectedMidnightWallet {
-  name?: string;
-  icon?: string;
-  apiVersion?: string;
-  connect: (networkId?: string) => Promise<ConnectedMidnightWallet>;
-}
-
-declare global {
-  interface Window {
-    midnight?: Record<string, InjectedMidnightWallet>;
-  }
-}
 
 export type AvailableWallet = {
   id: string;
   name: string;
+  rdns: string;
   apiVersion: string;
-  icon?: string;
+  api: InitialAPI;
 };
 
-export type ConnectedWallet = AvailableWallet & {
-  api: ConnectedMidnightWallet;
+export type ConnectedWallet = {
+  id: string;
+  name: string;
+  api: ConnectedAPI;
+  configuration: Configuration;
+  networkId: string;
+  addresses: {
+    shieldedAddress: string;
+    shieldedCoinPublicKey: string;
+    shieldedEncryptionPublicKey: string;
+  };
 };
+
+type MidnightWindow = Window & {
+  midnight?: Record<string, InitialAPI>;
+};
+
+function injectedWallets(): Record<string, InitialAPI> {
+  if (typeof window === "undefined") return {};
+  return (window as MidnightWindow).midnight ?? {};
+}
 
 export function listMidnightWallets(): AvailableWallet[] {
-  if (typeof window === "undefined") return [];
-  return Object.entries(window.midnight ?? {})
-    .filter(([, wallet]) => typeof wallet?.connect === "function")
-    .map(([id, wallet]) => ({
+  return Object.entries(injectedWallets())
+    .filter(([, api]) => api && typeof api.connect === "function")
+    .map(([id, api]) => ({
       id,
-      name: wallet.name ?? id,
-      apiVersion: wallet.apiVersion ?? "unknown",
-      icon: wallet.icon,
+      name: api.name || "Midnight wallet",
+      rdns: api.rdns || "unknown",
+      apiVersion: api.apiVersion || "unknown",
+      api,
     }));
 }
 
-function normalizeNetworkId(status: WalletConnectionStatus | string | undefined): string | undefined {
-  if (typeof status === "string") return status.toLowerCase();
-  if (status && typeof status.networkId === "string") return status.networkId.toLowerCase();
-  return undefined;
+function chooseWallet(walletId?: string): AvailableWallet {
+  const wallets = listMidnightWallets();
+  if (wallets.length === 0) throw new Error("No Midnight DApp Connector wallet detected. Install Lace with Midnight support.");
+  if (walletId) {
+    const selected = wallets.find((wallet) => wallet.id === walletId);
+    if (!selected) throw new Error("The selected Midnight wallet is no longer available");
+    return selected;
+  }
+  const lace = wallets.find((wallet) => /lace/i.test(`${wallet.name} ${wallet.rdns}`));
+  return lace ?? wallets[0];
+}
+
+function assertRequestedNetwork(actual: string, requested: string): void {
+  if (actual !== requested) {
+    throw new Error(`Midnight network mismatch: Blackpay requires ${requested}, wallet is connected to ${actual}`);
+  }
+}
+
+function assertServiceConfiguration(configuration: Configuration, requestedNetwork: string): void {
+  assertRequestedNetwork(configuration.networkId, requestedNetwork);
+  if (!configuration.indexerUri.trim()) throw new Error("Wallet returned no Midnight indexer URI");
+  if (!configuration.indexerWsUri.trim()) throw new Error("Wallet returned no Midnight indexer WebSocket URI");
+  if (!configuration.substrateNodeUri.trim()) throw new Error("Wallet returned no Midnight substrate node URI");
 }
 
 export async function connectMidnightWallet(walletId?: string): Promise<ConnectedWallet> {
-  if (typeof window === "undefined") throw new Error("Wallet connection is only available in the browser");
+  const selected = chooseWallet(walletId);
+  const requestedNetwork = getMidnightPublicConfig().network;
 
-  const injected = window.midnight ?? {};
-  const entries = Object.entries(injected).filter(([, wallet]) => typeof wallet?.connect === "function");
-  if (entries.length === 0) throw new Error("No Midnight-compatible wallet was detected");
+  const api = await selected.api.connect(requestedNetwork);
+  const status = await api.getConnectionStatus();
+  if (status.status !== "connected") throw new Error("Midnight wallet connection was not authorized");
+  assertRequestedNetwork(status.networkId, requestedNetwork);
 
-  const selected = walletId
-    ? entries.find(([id]) => id === walletId)
-    : entries.length === 1
-      ? entries[0]
-      : undefined;
+  const configuration = await api.getConfiguration();
+  assertServiceConfiguration(configuration, requestedNetwork);
+  const addresses = await api.getShieldedAddresses();
 
-  if (!selected) {
-    if (walletId) throw new Error(`Midnight wallet '${walletId}' was not found`);
-    throw new Error("Multiple Midnight wallets detected; select one explicitly");
-  }
+  if (!addresses.shieldedAddress.trim()) throw new Error("Wallet returned no shielded address");
+  if (!addresses.shieldedCoinPublicKey.trim()) throw new Error("Wallet returned no shielded coin public key");
+  if (!addresses.shieldedEncryptionPublicKey.trim()) throw new Error("Wallet returned no shielded encryption public key");
 
-  const [id, wallet] = selected;
-  const config = getMidnightPublicConfig();
-  const api = await wallet.connect(config.network);
+  await api.hintUsage([
+    "getShieldedAddresses",
+    "getConfiguration",
+    "getConnectionStatus",
+    "balanceUnsealedTransaction",
+    "submitTransaction",
+    "getProvingProvider",
+    "makeTransfer",
+  ]);
 
-  if (!api || typeof api.makeTransfer !== "function" || typeof api.submitTransaction !== "function") {
-    throw new Error("Connected wallet does not expose the required Midnight transaction API");
-  }
-
-  const status = api.getConnectionStatus ? await api.getConnectionStatus() : undefined;
-  const connectedNetwork = normalizeNetworkId(status);
-  if (connectedNetwork && !connectedNetwork.includes(config.network)) {
-    throw new Error(`Wallet network mismatch: expected ${config.network}, received ${connectedNetwork}`);
-  }
+  setNetworkId(status.networkId);
 
   return {
-    id,
-    name: wallet.name ?? id,
-    apiVersion: wallet.apiVersion ?? "unknown",
-    icon: wallet.icon,
+    id: selected.id,
+    name: selected.name,
     api,
+    configuration,
+    networkId: status.networkId,
+    addresses,
   };
+}
+
+export async function assertWalletStillConnected(wallet: ConnectedWallet): Promise<void> {
+  const status = await wallet.api.getConnectionStatus();
+  if (status.status !== "connected") throw new Error("Midnight wallet session is no longer connected");
+  assertRequestedNetwork(status.networkId, wallet.networkId);
 }
