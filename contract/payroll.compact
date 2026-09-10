@@ -1,0 +1,274 @@
+pragma language_version >= 0.22 && <= 0.23;
+import CompactStandardLibrary;
+
+export enum PayrollFrequency {
+    Weekly,
+    Biweekly,
+    Monthly,
+}
+
+export enum EmployeeStatus {
+    Active,
+    Inactive,
+}
+
+export enum PayRunStatus {
+    Draft,
+    Approved,
+    Executed,
+}
+
+export new type AdminSecret = Bytes<32>;
+export new type AdminPublicKey = Bytes<32>;
+
+struct PrivateEmployeeRecord {
+    salaryMinor: Uint<64>;
+    payoutCommitment: Bytes<32>;
+    salt: Bytes<32>;
+}
+
+struct PrivatePayRunRecord {
+    totalPayrollMinor: Uint<128>;
+    paymentsRoot: Bytes<32>;
+    salt: Bytes<32>;
+}
+
+export struct EmployeeEntry {
+    commitment: Bytes<32>;
+    status: EmployeeStatus;
+    revision: Uint<32>;
+}
+
+export struct PayRunEntry {
+    commitment: Bytes<32>;
+    period: Uint<32>;
+    employeeCount: Uint<32>;
+    status: PayRunStatus;
+    transactionCommitment: Bytes<32>;
+}
+
+export struct IncomeProofEntry {
+    employeeCommitment: Bytes<32>;
+    thresholdMinor: Uint<64>;
+    satisfied: Boolean;
+}
+
+witness getAdminSecret(): AdminSecret;
+witness getEmployeeRecord(): PrivateEmployeeRecord;
+witness getPayRunRecord(): PrivatePayRunRecord;
+
+export ledger admin: AdminPublicKey;
+export ledger workspaceCreated: Boolean;
+export ledger workspaceId: Bytes<32>;
+export ledger currencyId: Bytes<32>;
+export ledger payrollFrequency: PayrollFrequency;
+export ledger activeEmployeeCount: Uint<32>;
+export ledger employees: Map<Bytes<32>, EmployeeEntry>;
+export ledger payRuns: Map<Bytes<32>, PayRunEntry>;
+export ledger incomeProofs: Map<Bytes<32>, IncomeProofEntry>;
+
+constructor() {
+    admin = disclose(deriveAdminPublicKey(getAdminSecret()));
+    workspaceCreated = false;
+    workspaceId = pad(32, "");
+    currencyId = pad(32, "");
+    payrollFrequency = PayrollFrequency.Monthly;
+    activeEmployeeCount = 0;
+}
+
+export pure circuit deriveAdminPublicKey(secret: AdminSecret): AdminPublicKey {
+    return persistentHash<[Bytes<20>, AdminSecret]>([
+        "blackpay:admin:pk:v1",
+        secret
+    ]) as AdminPublicKey;
+}
+
+circuit assertAdmin(): [] {
+    assert(admin == deriveAdminPublicKey(getAdminSecret()), "Only the payroll admin may perform this action");
+}
+
+export pure circuit employeeCommitment(
+    employeeId: Bytes<32>,
+    salaryMinor: Uint<64>,
+    payoutCommitment: Bytes<32>,
+    salt: Bytes<32>
+): Bytes<32> {
+    const salaryHash = persistentHash<Uint<64>>(salaryMinor);
+    return persistentHash<Vector<5, Bytes<32>>>([
+        pad(32, "blackpay:employee:v1"),
+        employeeId,
+        salaryHash,
+        payoutCommitment,
+        salt
+    ]);
+}
+
+export pure circuit payRunCommitment(
+    payRunId: Bytes<32>,
+    totalPayrollMinor: Uint<128>,
+    paymentsRoot: Bytes<32>,
+    salt: Bytes<32>
+): Bytes<32> {
+    const totalHash = persistentHash<Uint<128>>(totalPayrollMinor);
+    return persistentHash<Vector<5, Bytes<32>>>([
+        pad(32, "blackpay:payrun:v1"),
+        payRunId,
+        totalHash,
+        paymentsRoot,
+        salt
+    ]);
+}
+
+export circuit createWorkspace(
+    newWorkspaceId: Bytes<32>,
+    newCurrencyId: Bytes<32>,
+    frequency: PayrollFrequency
+): [] {
+    assertAdmin();
+    assert(!workspaceCreated, "Payroll workspace already exists");
+    workspaceId = disclose(newWorkspaceId);
+    currencyId = disclose(newCurrencyId);
+    payrollFrequency = disclose(frequency);
+    workspaceCreated = true;
+}
+
+export circuit addEmployee(employeeId: Bytes<32>): [] {
+    assertAdmin();
+    assert(workspaceCreated, "Create the payroll workspace first");
+    const id = disclose(employeeId);
+    assert(!employees.member(id), "Employee already exists");
+
+    const record = getEmployeeRecord();
+    assert(record.salaryMinor > 0, "Salary must be greater than zero");
+    const commitment = employeeCommitment(employeeId, record.salaryMinor, record.payoutCommitment, record.salt);
+
+    employees.insert(id, disclose(EmployeeEntry {
+        commitment: commitment,
+        status: EmployeeStatus.Active,
+        revision: 1,
+    }));
+    activeEmployeeCount = activeEmployeeCount + 1;
+}
+
+export circuit updateEmployee(employeeId: Bytes<32>): [] {
+    assertAdmin();
+    const id = disclose(employeeId);
+    assert(employees.member(id), "Employee does not exist");
+
+    const existing = employees.lookup(id);
+    assert(existing.status == EmployeeStatus.Active, "Employee is inactive");
+    const record = getEmployeeRecord();
+    assert(record.salaryMinor > 0, "Salary must be greater than zero");
+    const commitment = employeeCommitment(employeeId, record.salaryMinor, record.payoutCommitment, record.salt);
+
+    employees.insert(id, disclose(EmployeeEntry {
+        commitment: commitment,
+        status: EmployeeStatus.Active,
+        revision: existing.revision + 1,
+    }));
+}
+
+export circuit removeEmployee(employeeId: Bytes<32>): [] {
+    assertAdmin();
+    const id = disclose(employeeId);
+    assert(employees.member(id), "Employee does not exist");
+    const existing = employees.lookup(id);
+    assert(existing.status == EmployeeStatus.Active, "Employee is already inactive");
+    assert(activeEmployeeCount > 0, "Employee counter invariant failed");
+
+    employees.insert(id, disclose(EmployeeEntry {
+        commitment: existing.commitment,
+        status: EmployeeStatus.Inactive,
+        revision: existing.revision + 1,
+    }));
+    activeEmployeeCount = activeEmployeeCount - 1;
+}
+
+export circuit createPayRun(
+    payRunId: Bytes<32>,
+    period: Uint<32>,
+    employeeCount: Uint<32>
+): [] {
+    assertAdmin();
+    assert(workspaceCreated, "Create the payroll workspace first");
+    assert(employeeCount > 0, "Pay run requires at least one employee");
+    assert(employeeCount <= activeEmployeeCount, "Pay run employee count exceeds active employees");
+    const id = disclose(payRunId);
+    assert(!payRuns.member(id), "Pay run already exists");
+
+    const record = getPayRunRecord();
+    assert(record.totalPayrollMinor > 0, "Payroll total must be greater than zero");
+    const commitment = payRunCommitment(payRunId, record.totalPayrollMinor, record.paymentsRoot, record.salt);
+
+    payRuns.insert(id, disclose(PayRunEntry {
+        commitment: commitment,
+        period: period,
+        employeeCount: employeeCount,
+        status: PayRunStatus.Draft,
+        transactionCommitment: pad(32, ""),
+    }));
+}
+
+export circuit approvePayRun(payRunId: Bytes<32>): [] {
+    assertAdmin();
+    const id = disclose(payRunId);
+    assert(payRuns.member(id), "Pay run does not exist");
+    const run = payRuns.lookup(id);
+    assert(run.status == PayRunStatus.Draft, "Only draft pay runs may be approved");
+
+    payRuns.insert(id, disclose(PayRunEntry {
+        commitment: run.commitment,
+        period: run.period,
+        employeeCount: run.employeeCount,
+        status: PayRunStatus.Approved,
+        transactionCommitment: run.transactionCommitment,
+    }));
+}
+
+export circuit finalizePayRun(payRunId: Bytes<32>, transactionCommitment: Bytes<32>): [] {
+    assertAdmin();
+    const id = disclose(payRunId);
+    assert(payRuns.member(id), "Pay run does not exist");
+    const run = payRuns.lookup(id);
+    assert(run.status == PayRunStatus.Approved, "Pay run must be approved before execution");
+
+    payRuns.insert(id, disclose(PayRunEntry {
+        commitment: run.commitment,
+        period: run.period,
+        employeeCount: run.employeeCount,
+        status: PayRunStatus.Executed,
+        transactionCommitment: transactionCommitment,
+    }));
+}
+
+export circuit proveIncomeAtLeast(
+    employeeId: Bytes<32>,
+    thresholdMinor: Uint<64>,
+    nonce: Bytes<32>
+): Bytes<32> {
+    const id = disclose(employeeId);
+    assert(employees.member(id), "Employee does not exist");
+    const entry = employees.lookup(id);
+    assert(entry.status == EmployeeStatus.Active, "Employee is inactive");
+
+    const record = getEmployeeRecord();
+    const currentCommitment = employeeCommitment(employeeId, record.salaryMinor, record.payoutCommitment, record.salt);
+    assert(currentCommitment == entry.commitment, "Private salary record does not match the registered commitment");
+    assert(record.salaryMinor >= thresholdMinor, "Income threshold is not satisfied");
+
+    const thresholdHash = persistentHash<Uint<64>>(thresholdMinor);
+    const proofId = persistentHash<Vector<4, Bytes<32>>>([
+        pad(32, "blackpay:income:v1"),
+        employeeId,
+        thresholdHash,
+        nonce
+    ]);
+
+    incomeProofs.insert(disclose(proofId), disclose(IncomeProofEntry {
+        employeeCommitment: entry.commitment,
+        thresholdMinor: thresholdMinor,
+        satisfied: true,
+    }));
+
+    return proofId;
+}
