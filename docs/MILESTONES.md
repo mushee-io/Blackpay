@@ -24,7 +24,7 @@ Implemented:
 - fail-closed contract gateway
 
 Remaining verification:
-- observe CI app build
+- observe green CI app build
 - compile Compact with toolchain 0.31.1
 - connect a real Preview wallet
 - configure live Preview node/indexer endpoints
@@ -122,22 +122,140 @@ Remaining verification:
 - negative threshold rejection test
 - independent verifier flow
 
-## Definition of Milestones 1–6 complete
+## Milestone 7 — Selective disclosure
 
-Milestones 1–6 move from **CODED / VERIFY** to **LIVE** only when all of the following are observed:
+**Status: CODED / VERIFY**
+
+Implemented:
+- `DisclosureKind` protocol model
+- verifier-scoped income-threshold disclosure circuit
+- verifier-scoped active-employment disclosure circuit
+- disclosure expiry metadata
+- nonce-derived disclosure IDs
+- revocation circuit
+- disclosure gateway methods
+- disclosure creation/revocation UI
+- exact salary excluded from disclosure ledger state
+
+Remaining verification:
+- Compact 0.31.1 compile
+- generated binding adapter methods
+- positive/negative Preview proof tests
+- verifier-side expiry enforcement using authoritative network time
+- revoked-disclosure verification test
+
+## Milestone 8 — Employer dashboard
+
+**Status: CODED / VERIFY**
+
+Implemented:
+- product navigation covering overview, people, pay runs, proofs, employee, audit and API
+- workspace/payroll controls from Milestones 2–6
+- disclosure controls from Milestone 7
+- deployment-readiness state
+- fail-closed contract configuration display
+
+Remaining verification:
+- hydrate dashboard counts/state from the public data provider
+- Preview indexer refresh/reconnect tests
+- pagination for larger employee/pay-run sets
+
+## Milestone 9 — Employee portal + private payslips
+
+**Status: CODED / VERIFY**
+
+Implemented:
+- private payslip domain model
+- volatile in-memory payslip store
+- duplicate protection per pay-run/transaction pair
+- employee-reference scoped payslip lookup
+- gross/net/currency/period/status display
+- settlement transaction reference requirement
+- no localStorage/sessionStorage persistence
+
+Remaining verification:
+- automatic payslip issuance from the successful M5 payment path
+- encrypted Midnight private-state persistence
+- employee-owned recovery/access model
+- finalized status binding to the on-chain pay-run lifecycle
+
+## Milestone 10 — Security + live release gate
+
+**Status: CODED / VERIFY**
+
+Implemented:
+- `npm run release:check`
+- `npm run live:verify`
+- required deployment-env validation
+- required Compact artifact validation
+- proof server/indexer/node reachability preflight
+- explicit statement that infrastructure preflight does not equal live payroll verification
+- existing privacy scanner and fail-closed gateway retained
+
+Remaining verification:
+- green app CI
+- green Compact 0.31.1 compiler job
+- Preview wallet signing
+- contract deployment provenance
+- full end-to-end private payroll test
+
+## Milestone 11 — Compliance + audit controls
+
+**Status: CODED / VERIFY**
+
+Implemented:
+- redacted public audit bundle schema
+- strict 32-byte proof/disclosure/transaction reference validation
+- duplicate-reference removal
+- privacy statement embedded in every bundle
+- salary, recipient, salt and witness fields excluded by type design
+- audit bundle UI
+
+Remaining verification:
+- independent verifier lookup against the Midnight indexer
+- signed/exportable audit bundle envelope
+- organization-level auditor authorization policy
+
+## Milestone 12 — API + SDK integrations
+
+**Status: CODED / VERIFY**
+
+Implemented:
+- typed `BlackpaySdk` façade over the real contract gateway
+- SDK methods for workspace, employee, pay-run, income proof and selective disclosure flows
+- `GET /api/v1/status` public-safe readiness endpoint
+- no simulated SDK gateway
+- integration/privacy documentation
+
+Remaining verification:
+- generated Compact adapter registration
+- public verifier/read SDK
+- versioned package publishing
+- partner integration test on Midnight Preview
+
+## Definition of Milestones 1–12 complete
+
+Milestones move from **CODED / VERIFY** to **LIVE** only when all relevant checks are observed:
 
 ```text
-App build                 PASS
-Compact 0.31.1 compile    PASS
-Proof server 8.1.0        PASS
-Preview wallet            PASS
-Preview node/indexer      PASS
-Contract deployment       PASS
-Workspace transaction     PASS
-Employee private commit   PASS
-Pay-run lifecycle         PASS
-Shielded payroll transfer PASS
-Income >= threshold proof PASS
-Public salary leakage     NONE
-Fake fallback             NONE
+App typecheck/build             PASS
+Privacy scan                    PASS
+Compact 0.31.1 compile          PASS
+Proof server 8.1.0              PASS
+Preview wallet                  PASS
+Preview node/indexer            PASS
+Contract deployment             PASS
+Workspace transaction           PASS
+Employee private commit         PASS
+Pay-run lifecycle               PASS
+Shielded payroll transfer       PASS
+Income >= threshold proof       PASS
+Scoped disclosure               PASS
+Disclosure revocation           PASS
+Disclosure expiry enforcement   PASS
+Employee private payslip        PASS
+Audit verifier lookup           PASS
+SDK Preview integration         PASS
+Public salary leakage           NONE
+Fake fallback                   NONE
 ```
