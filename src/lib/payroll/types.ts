@@ -1,6 +1,8 @@
 export type PayrollFrequency = "weekly" | "biweekly" | "monthly";
 export type EmployeeStatus = "active" | "inactive";
 export type PayRunStatus = "draft" | "approved" | "executed";
+export type DisclosureKind = "employment-active" | "income-at-least";
+export type PayslipStatus = "submitted" | "finalized";
 
 export type EmployerWorkspaceInput = {
   companyName: string;
@@ -55,4 +57,36 @@ export type IncomeThresholdProof = {
   employeeCommitment: string;
   thresholdMinor: bigint;
   satisfied: true;
+};
+
+export type SelectiveDisclosureRecord = {
+  disclosureId: string;
+  employeeCommitment: string;
+  kind: DisclosureKind;
+  verifierId: string;
+  expiresAt: bigint;
+  revoked: boolean;
+};
+
+export type PrivatePayslip = {
+  employeeIdHex: string;
+  payRunIdHex: string;
+  period: number;
+  grossMinor: bigint;
+  netMinor: bigint;
+  currencyCode: string;
+  paymentTransactionId: string;
+  status: PayslipStatus;
+  createdAt: number;
+};
+
+export type PublicAuditBundle = {
+  version: "blackpay-audit-v1";
+  generatedAt: string;
+  network: string;
+  contractAddress: string;
+  proofIds: string[];
+  disclosureIds: string[];
+  transactionCommitments: string[];
+  privacyStatement: string;
 };
