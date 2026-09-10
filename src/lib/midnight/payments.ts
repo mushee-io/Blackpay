@@ -1,25 +1,27 @@
-import type { ConnectedMidnightWallet } from "./wallet";
+import type { ConnectedAPI, DesiredOutput, TokenType } from "@midnight-ntwrk/dapp-connector-api";
+import * as ledger from "@midnight-ntwrk/midnight-js-protocol/ledger";
 import type { PrivatePayrollPayment } from "../payroll/types";
+import { transactionHexToBytes } from "./bytes";
 
 function requirePositivePayment(payment: PrivatePayrollPayment): void {
   if (payment.salaryMinor <= 0n) throw new Error("Payroll payment must be greater than zero");
   if (!payment.shieldedRecipient.trim()) throw new Error("Payroll payment requires a shielded recipient");
 }
 
-function extractTransactionId(result: unknown): string {
-  if (typeof result === "string" && result.trim()) return result;
-  if (result && typeof result === "object") {
-    const record = result as Record<string, unknown>;
-    for (const key of ["txId", "transactionId", "id", "hash"]) {
-      const value = record[key];
-      if (typeof value === "string" && value.trim()) return value;
-    }
-  }
-  throw new Error("Midnight wallet submitted the payroll transaction but returned no transaction identifier");
+function transactionIdFromSerialized(serializedHex: string): string {
+  const finalized = ledger.Transaction.deserialize(
+    "signature",
+    "proof",
+    "binding",
+    transactionHexToBytes(serializedHex),
+  ) as ledger.FinalizedTransaction;
+  const [transactionId] = finalized.identifiers();
+  if (!transactionId) throw new Error("Unable to derive a Midnight transaction identifier before submission");
+  return transactionId;
 }
 
 export async function submitShieldedPayroll(params: {
-  wallet: ConnectedMidnightWallet;
+  wallet: ConnectedAPI;
   tokenType: string;
   payments: PrivatePayrollPayment[];
 }): Promise<{ transactionId: string }> {
@@ -29,16 +31,17 @@ export async function submitShieldedPayroll(params: {
 
   for (const payment of payments) requirePositivePayment(payment);
 
-  const outputs = payments.map((payment) => ({
-    kind: "shielded" as const,
-    tokenType,
+  const outputs: DesiredOutput[] = payments.map((payment) => ({
+    kind: "shielded",
+    type: tokenType.trim() as TokenType,
     value: payment.salaryMinor,
     recipient: payment.shieldedRecipient.trim(),
   }));
 
-  const transaction = await wallet.makeTransfer(outputs);
-  if (!transaction) throw new Error("Midnight wallet did not create a payroll transaction");
+  const transfer = await wallet.makeTransfer(outputs, { payFees: true });
+  if (!transfer.tx?.trim()) throw new Error("Midnight wallet did not return a serialized payroll transaction");
 
-  const submitted = await wallet.submitTransaction(transaction);
-  return { transactionId: extractTransactionId(submitted) };
+  const transactionId = transactionIdFromSerialized(transfer.tx);
+  await wallet.submitTransaction(transfer.tx);
+  return { transactionId };
 }
