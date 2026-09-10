@@ -5,8 +5,6 @@ import {
   clearPayrollContractGateway,
   registerPayrollContractGateway,
   type PayrollContractGateway,
-  type PrivateEmployeeWitness,
-  type PrivatePayRunWitness,
 } from "./contract-client";
 import {
   createCompiledBlackpayContract,
@@ -26,7 +24,6 @@ import type { ConnectedWallet } from "./wallet";
 import type { PayrollFrequency } from "../payroll/types";
 
 export type BlackpayRuntimeRole = "admin" | "employee";
-
 export type BlackpayRuntimeStatus = {
   ready: boolean;
   contractAddress?: string;
@@ -44,7 +41,7 @@ type LiveRuntime = {
 };
 
 type FinalizedCall = {
-  public: { txId: string; blockHeight: bigint };
+  public: { txId: string };
   private: { result: unknown };
 };
 
@@ -53,16 +50,14 @@ let runtime: LiveRuntime | undefined;
 function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
-  for (let index = 0; index < a.length; index += 1) diff |= a[index] ^ b[index];
+  for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];
   return diff === 0;
 }
 
 function frequencyValue(generated: GeneratedBlackpayModule, frequency: PayrollFrequency): number {
-  switch (frequency) {
-    case "weekly": return generated.PayrollFrequency.Weekly;
-    case "biweekly": return generated.PayrollFrequency.Biweekly;
-    case "monthly": return generated.PayrollFrequency.Monthly;
-  }
+  if (frequency === "weekly") return generated.PayrollFrequency.Weekly;
+  if (frequency === "biweekly") return generated.PayrollFrequency.Biweekly;
+  return generated.PayrollFrequency.Monthly;
 }
 
 async function queryLedger(current: LiveRuntime): Promise<BlackpayLedgerView | null> {
@@ -75,13 +70,13 @@ async function confirmLedger(
   description: string,
   predicate: (ledger: BlackpayLedgerView) => boolean,
 ): Promise<BlackpayLedgerView> {
-  let lastLedger: BlackpayLedgerView | null = null;
+  let latest: BlackpayLedgerView | null = null;
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    lastLedger = await queryLedger(current);
-    if (lastLedger && predicate(lastLedger)) return lastLedger;
+    latest = await queryLedger(current);
+    if (latest && predicate(latest)) return latest;
     await new Promise((resolve) => window.setTimeout(resolve, 500));
   }
-  if (!lastLedger) throw new Error(`Midnight indexer did not return Blackpay state after ${description}`);
+  if (!latest) throw new Error(`Midnight indexer did not return Blackpay state after ${description}`);
   throw new Error(`Blackpay state did not confirm ${description} after transaction finalization`);
 }
 
@@ -108,11 +103,7 @@ async function setPrivateState(current: LiveRuntime, state: BlackpayPrivateState
   await current.providers.privateStateProvider.set(BLACKPAY_PRIVATE_STATE_ID, state);
 }
 
-async function submitCircuit(
-  current: LiveRuntime,
-  circuitId: BlackpayCircuitId,
-  args: unknown[],
-): Promise<FinalizedCall> {
+async function submitCircuit(current: LiveRuntime, circuitId: BlackpayCircuitId, args: unknown[]): Promise<FinalizedCall> {
   const result = await submitCallTx(current.providers as any, {
     compiledContract: current.compiledContract,
     contractAddress: current.contractAddress,
@@ -121,7 +112,7 @@ async function submitCircuit(
     privateStateId: BLACKPAY_PRIVATE_STATE_ID,
   } as any);
   if (!result.public.txId) throw new Error(`Midnight returned no transaction ID for ${circuitId}`);
-  return result as FinalizedCall;
+  return result as unknown as FinalizedCall;
 }
 
 function gatewayFor(current: LiveRuntime): PayrollContractGateway {
@@ -144,10 +135,9 @@ function gatewayFor(current: LiveRuntime): PayrollContractGateway {
     async addEmployee(input) {
       requireAdmin(current);
       const employeeId = hexToBytes32(input.employeeIdHex, "employee id");
-      const before = await getPrivateState(current);
-      const next = upsertEmployeeWitness(before, input.employeeIdHex, input.witness);
-      await setPrivateState(current, next);
-      const expectedCommitment = current.generated.pureCircuits.employeeCommitment(
+      const state = upsertEmployeeWitness(await getPrivateState(current), input.employeeIdHex, input.witness);
+      await setPrivateState(current, state);
+      const expected = current.generated.pureCircuits.employeeCommitment(
         employeeId,
         input.witness.salaryMinor,
         hexToBytes32(input.witness.payoutCommitmentHex, "payout commitment"),
@@ -155,7 +145,7 @@ function gatewayFor(current: LiveRuntime): PayrollContractGateway {
       );
       const result = await submitCircuit(current, "addEmployee", [employeeId]);
       await confirmLedger(current, "employee commitment", (ledger) =>
-        ledger.employees.member(employeeId) && equalBytes(ledger.employees.lookup(employeeId).commitment, expectedCommitment),
+        ledger.employees.member(employeeId) && equalBytes(ledger.employees.lookup(employeeId).commitment, expected),
       );
       return { transactionId: result.public.txId };
     },
@@ -163,10 +153,9 @@ function gatewayFor(current: LiveRuntime): PayrollContractGateway {
     async updateEmployee(input) {
       requireAdmin(current);
       const employeeId = hexToBytes32(input.employeeIdHex, "employee id");
-      const before = await getPrivateState(current);
-      const next = upsertEmployeeWitness(before, input.employeeIdHex, input.witness);
-      await setPrivateState(current, next);
-      const expectedCommitment = current.generated.pureCircuits.employeeCommitment(
+      const state = upsertEmployeeWitness(await getPrivateState(current), input.employeeIdHex, input.witness);
+      await setPrivateState(current, state);
+      const expected = current.generated.pureCircuits.employeeCommitment(
         employeeId,
         input.witness.salaryMinor,
         hexToBytes32(input.witness.payoutCommitmentHex, "payout commitment"),
@@ -174,7 +163,7 @@ function gatewayFor(current: LiveRuntime): PayrollContractGateway {
       );
       const result = await submitCircuit(current, "updateEmployee", [employeeId]);
       await confirmLedger(current, "employee update", (ledger) =>
-        ledger.employees.member(employeeId) && equalBytes(ledger.employees.lookup(employeeId).commitment, expectedCommitment),
+        ledger.employees.member(employeeId) && equalBytes(ledger.employees.lookup(employeeId).commitment, expected),
       );
       return { transactionId: result.public.txId };
     },
@@ -194,23 +183,18 @@ function gatewayFor(current: LiveRuntime): PayrollContractGateway {
       if (!Number.isSafeInteger(input.period) || input.period <= 0) throw new Error("Pay period must be a positive safe integer");
       if (!Number.isSafeInteger(input.employeeCount) || input.employeeCount <= 0) throw new Error("Employee count must be a positive safe integer");
       const payRunId = hexToBytes32(input.payRunIdHex, "pay-run id");
-      const before = await getPrivateState(current);
-      await setPrivateState(current, upsertPayRunWitness(before, input.payRunIdHex, input.witness));
-      const expectedCommitment = current.generated.pureCircuits.payRunCommitment(
+      await setPrivateState(current, upsertPayRunWitness(await getPrivateState(current), input.payRunIdHex, input.witness));
+      const expected = current.generated.pureCircuits.payRunCommitment(
         payRunId,
         input.witness.totalPayrollMinor,
         hexToBytes32(input.witness.paymentsRootHex, "payments root"),
         hexToBytes32(input.witness.saltHex, "pay-run salt"),
       );
-      const result = await submitCircuit(current, "createPayRun", [
-        payRunId,
-        BigInt(input.period),
-        BigInt(input.employeeCount),
-      ]);
+      const result = await submitCircuit(current, "createPayRun", [payRunId, BigInt(input.period), BigInt(input.employeeCount)]);
       await confirmLedger(current, "pay-run creation", (ledger) =>
         ledger.payRuns.member(payRunId) &&
         ledger.payRuns.lookup(payRunId).status === current.generated.PayRunStatus.Draft &&
-        equalBytes(ledger.payRuns.lookup(payRunId).commitment, expectedCommitment),
+        equalBytes(ledger.payRuns.lookup(payRunId).commitment, expected),
       );
       return { transactionId: result.public.txId };
     },
@@ -240,8 +224,7 @@ function gatewayFor(current: LiveRuntime): PayrollContractGateway {
 
     async proveIncomeAtLeast(input) {
       const employeeId = hexToBytes32(input.employeeIdHex, "employee id");
-      const before = await getPrivateState(current);
-      await setPrivateState(current, upsertEmployeeWitness(before, input.employeeIdHex, input.witness));
+      await setPrivateState(current, upsertEmployeeWitness(await getPrivateState(current), input.employeeIdHex, input.witness));
       const result = await submitCircuit(current, "proveIncomeAtLeast", [
         employeeId,
         input.thresholdMinor,
@@ -256,8 +239,7 @@ function gatewayFor(current: LiveRuntime): PayrollContractGateway {
 
     async createIncomeDisclosure(input) {
       const employeeId = hexToBytes32(input.employeeIdHex, "employee id");
-      const before = await getPrivateState(current);
-      await setPrivateState(current, upsertEmployeeWitness(before, input.employeeIdHex, input.witness));
+      await setPrivateState(current, upsertEmployeeWitness(await getPrivateState(current), input.employeeIdHex, input.witness));
       const result = await submitCircuit(current, "createIncomeDisclosure", [
         employeeId,
         input.thresholdMinor,
@@ -274,8 +256,7 @@ function gatewayFor(current: LiveRuntime): PayrollContractGateway {
 
     async createEmploymentDisclosure(input) {
       const employeeId = hexToBytes32(input.employeeIdHex, "employee id");
-      const before = await getPrivateState(current);
-      await setPrivateState(current, upsertEmployeeWitness(before, input.employeeIdHex, input.witness));
+      await setPrivateState(current, upsertEmployeeWitness(await getPrivateState(current), input.employeeIdHex, input.witness));
       const result = await submitCircuit(current, "createEmploymentDisclosure", [
         employeeId,
         hexToBytes32(input.verifierIdHex, "verifier id"),
@@ -292,11 +273,10 @@ function gatewayFor(current: LiveRuntime): PayrollContractGateway {
     async revokeDisclosure(input) {
       const employeeId = hexToBytes32(input.employeeIdHex, "employee id");
       const disclosureId = hexToBytes32(input.disclosureIdHex, "disclosure id");
-      const before = await getPrivateState(current);
-      const withWitness = input.witness
-        ? upsertEmployeeWitness(before, input.employeeIdHex, input.witness)
-        : activateEmployeeWitness(before, input.employeeIdHex);
-      await setPrivateState(current, withWitness);
+      const state = input.witness
+        ? upsertEmployeeWitness(await getPrivateState(current), input.employeeIdHex, input.witness)
+        : activateEmployeeWitness(await getPrivateState(current), input.employeeIdHex);
+      await setPrivateState(current, state);
       const result = await submitCircuit(current, "revokeDisclosure", [employeeId, disclosureId]);
       await confirmLedger(current, "disclosure revocation", (ledger) =>
         ledger.disclosures.member(disclosureId) && ledger.disclosures.lookup(disclosureId).revoked,
@@ -327,11 +307,10 @@ export async function initializeBlackpayPreview(params: {
   let deploymentTransactionId: string | undefined;
 
   if (params.mode === "deploy") {
-    const initialPrivateState = createInitialBlackpayPrivateState();
     const deployed = await deployContract(providers as any, {
       compiledContract,
       privateStateId: BLACKPAY_PRIVATE_STATE_ID,
-      initialPrivateState,
+      initialPrivateState: createInitialBlackpayPrivateState(),
     } as any);
     contractAddress = deployed.deployTxData.public.contractAddress;
     deploymentTransactionId = deployed.deployTxData.public.txId;
@@ -384,8 +363,7 @@ export function getBlackpayRuntimeStatus(): BlackpayRuntimeStatus {
 }
 
 export async function readBlackpayLedger(): Promise<BlackpayLedgerView> {
-  const current = requireRuntime();
-  return confirmLedger(current, "ledger read", () => true);
+  return confirmLedger(requireRuntime(), "ledger read", () => true);
 }
 
 export async function exportBlackpayEncryptedBackup(exportPassword: string) {
