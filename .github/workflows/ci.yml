@@ -52,3 +52,40 @@ jobs:
           path: contract/build
           if-no-files-found: error
           retention-days: 14
+
+  live-assets:
+    needs: [app, compact]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Download exact compiled contract
+        uses: actions/download-artifact@v4
+        with:
+          name: blackpay-compact-0.31.1
+          path: contract/build
+      - name: Build browser proving assets
+        run: npm run compact:assets
+      - name: Assert hosted Preview assets
+        shell: bash
+        run: |
+          test -s public/compact/blackpay.generated.js
+          test -s public/compact/contract-info.json
+          test "$(find public/keys -type f | wc -l)" -eq 22
+          test "$(find public/zkir -type f | wc -l)" -eq 22
+      - name: Rebuild app with generated runtime present
+        run: npm run build
+      - name: Upload hosted runtime assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackpay-preview-browser-assets
+          path: |
+            public/compact
+            public/keys
+            public/zkir
+          if-no-files-found: error
+          retention-days: 14
