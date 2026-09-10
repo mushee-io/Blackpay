@@ -2,15 +2,19 @@ import { CompiledContract } from "@midnight-ntwrk/midnight-js-protocol/compact-j
 import { blackpayWitnesses } from "./private-state";
 
 export type BlackpayLedgerView = {
+  admin: Uint8Array;
   workspaceCreated: boolean;
+  workspaceId: Uint8Array;
+  currencyId: Uint8Array;
+  payrollFrequency: number;
   activeEmployeeCount: bigint;
   employees: {
     member(key: Uint8Array): boolean;
-    lookup(key: Uint8Array): { status: number; revision: bigint };
+    lookup(key: Uint8Array): { commitment: Uint8Array; status: number; revision: bigint };
   };
   payRuns: {
     member(key: Uint8Array): boolean;
-    lookup(key: Uint8Array): { status: number; transactionCommitment: Uint8Array };
+    lookup(key: Uint8Array): { commitment: Uint8Array; status: number; transactionCommitment: Uint8Array };
   };
   incomeProofs: {
     member(key: Uint8Array): boolean;
@@ -24,6 +28,21 @@ export type BlackpayLedgerView = {
 export type GeneratedBlackpayModule = {
   Contract: new (...args: unknown[]) => unknown;
   ledger(state: unknown): BlackpayLedgerView;
+  pureCircuits: {
+    deriveAdminPublicKey(secret: Uint8Array): Uint8Array;
+    employeeCommitment(
+      employeeId: Uint8Array,
+      salaryMinor: bigint,
+      payoutCommitment: Uint8Array,
+      salt: Uint8Array,
+    ): Uint8Array;
+    payRunCommitment(
+      payRunId: Uint8Array,
+      totalPayrollMinor: bigint,
+      paymentsRoot: Uint8Array,
+      salt: Uint8Array,
+    ): Uint8Array;
+  };
   PayrollFrequency: { Weekly: number; Biweekly: number; Monthly: number };
   EmployeeStatus: { Active: number; Inactive: number };
   PayRunStatus: { Draft: number; Approved: number; Executed: number };
@@ -34,6 +53,9 @@ function validateModule(value: unknown): GeneratedBlackpayModule {
   const module = value as Partial<GeneratedBlackpayModule>;
   if (typeof module.Contract !== "function") throw new Error("Generated Blackpay Contract export is missing");
   if (typeof module.ledger !== "function") throw new Error("Generated Blackpay ledger decoder is missing");
+  if (!module.pureCircuits || typeof module.pureCircuits.deriveAdminPublicKey !== "function") {
+    throw new Error("Generated Blackpay pure circuits are missing");
+  }
   if (!module.PayrollFrequency || !module.EmployeeStatus || !module.PayRunStatus) {
     throw new Error("Generated Blackpay enum exports are missing");
   }
