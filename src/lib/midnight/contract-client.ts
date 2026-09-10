@@ -51,6 +51,29 @@ export interface PayrollContractGateway {
     nonceHex: string;
     witness: PrivateEmployeeWitness;
   }): Promise<{ transactionId: string; proofIdHex: string }>;
+
+  createIncomeDisclosure(input: {
+    employeeIdHex: string;
+    thresholdMinor: bigint;
+    verifierIdHex: string;
+    expiresAt: bigint;
+    nonceHex: string;
+    witness: PrivateEmployeeWitness;
+  }): Promise<{ transactionId: string; disclosureIdHex: string }>;
+
+  createEmploymentDisclosure(input: {
+    employeeIdHex: string;
+    verifierIdHex: string;
+    expiresAt: bigint;
+    nonceHex: string;
+    witness: PrivateEmployeeWitness;
+  }): Promise<{ transactionId: string; disclosureIdHex: string }>;
+
+  revokeDisclosure(input: {
+    employeeIdHex: string;
+    disclosureIdHex: string;
+    witness: PrivateEmployeeWitness;
+  }): Promise<{ transactionId: string }>;
 }
 
 let activeGateway: PayrollContractGateway | undefined;
