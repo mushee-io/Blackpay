@@ -78,8 +78,8 @@ jobs:
           test -s src/generated/blackpay/index.js
           test -s src/generated/blackpay/index.d.ts
           test -s public/compact/contract-info.json
-          test "$(find public/keys -type f | wc -l)" -eq 22
-          test "$(find public/zkir -type f | wc -l)" -eq 22
+          test "$(find public/keys -type f | wc -l)" -eq 26
+          test "$(find public/zkir -type f | wc -l)" -eq 26
       - name: Build production app with generated Compact runtime
         run: npm run build:next
       - name: Upload hosted runtime assets
