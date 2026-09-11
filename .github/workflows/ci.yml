@@ -22,8 +22,6 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Type and privacy checks
         run: npm run check
-      - name: Build application
-        run: npm run build
 
   compact:
     runs-on: ubuntu-latest
@@ -45,6 +43,8 @@ jobs:
         shell: bash
         run: |
           test -d contract/build
+          test -s contract/build/contract/index.js
+          test -s contract/build/contract/index.d.ts
           test -n "$(find contract/build -type f -print -quit)"
           find contract/build -maxdepth 3 -type f -print | sort
       - name: Upload compiled Compact artifacts
@@ -70,17 +70,18 @@ jobs:
         with:
           name: blackpay-compact-0.31.1
           path: contract/build
-      - name: Build browser proving assets
+      - name: Prepare generated runtime and proving assets
         run: npm run compact:assets
       - name: Assert hosted Preview assets
         shell: bash
         run: |
-          test -s public/compact/blackpay.generated.js
+          test -s src/generated/blackpay/index.js
+          test -s src/generated/blackpay/index.d.ts
           test -s public/compact/contract-info.json
           test "$(find public/keys -type f | wc -l)" -eq 22
           test "$(find public/zkir -type f | wc -l)" -eq 22
-      - name: Rebuild app with generated runtime present
-        run: npm run build
+      - name: Build production app with generated Compact runtime
+        run: npm run build:next
       - name: Upload hosted runtime assets
         uses: actions/upload-artifact@v4
         with:
