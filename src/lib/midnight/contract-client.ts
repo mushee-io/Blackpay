@@ -3,6 +3,7 @@ import type { PayrollFrequency } from "../payroll/types";
 export type PrivateEmployeeWitness = {
   salaryMinor: bigint;
   payoutCommitmentHex: string;
+  payoutCoinPublicKeyHex: string;
   saltHex: string;
 };
 
@@ -10,6 +11,13 @@ export type PrivatePayRunWitness = {
   totalPayrollMinor: bigint;
   paymentsRootHex: string;
   saltHex: string;
+};
+
+export type PrivateSettlementPayment = {
+  employeeIdHex: string;
+  amountMinor: bigint;
+  payoutCoinPublicKeyHex: string;
+  paymentSaltHex: string;
 };
 
 export interface PayrollContractGateway {
@@ -34,16 +42,21 @@ export interface PayrollContractGateway {
   createPayRun(input: {
     payRunIdHex: string;
     period: number;
-    employeeCount: number;
-    witness: PrivatePayRunWitness;
-  }): Promise<{ transactionId: string }>;
+    tokenColorHex: string;
+    payments: PrivateSettlementPayment[];
+  }): Promise<{ transactionId: string; registrationTransactionIds: string[] }>;
 
   approvePayRun(payRunIdHex: string): Promise<{ transactionId: string }>;
 
-  finalizePayRun(input: {
+  fundPayRunPayment(input: {
     payRunIdHex: string;
-    transactionCommitmentHex: string;
-  }): Promise<{ transactionId: string }>;
+    employeeIdHex: string;
+  }): Promise<{ transactionId: string; claimIdHex: string; candidateMtIndices: string[] }>;
+
+  claimPayRunPayment(input: {
+    payRunIdHex: string;
+    employeeIdHex: string;
+  }): Promise<{ transactionId: string; claimIdHex: string }>;
 
   proveIncomeAtLeast(input: {
     employeeIdHex: string;
@@ -84,10 +97,7 @@ function emitGatewayReadiness(): void {
   for (const listener of gatewayListeners) listener(ready);
 }
 
-/**
- * Register only a real adapter backed by generated Compact bindings and
- * Midnight providers. The UI intentionally has no simulated fallback.
- */
+/** Register only a real generated-Compact/Midnight adapter. */
 export function registerPayrollContractGateway(gateway: PayrollContractGateway): void {
   activeGateway = gateway;
   emitGatewayReadiness();
@@ -111,7 +121,7 @@ export function subscribePayrollContractGateway(listener: (ready: boolean) => vo
 export function getPayrollContractGateway(): PayrollContractGateway {
   if (!activeGateway) {
     throw new Error(
-      "Blackpay live runtime is not active. Connect Lace, then deploy a new Blackpay contract or join a verified contract before sending payroll transactions.",
+      "Blackpay v2 live runtime is not active. Connect Lace, then deploy or join a verified protocol-v2 contract before sending payroll transactions.",
     );
   }
   return activeGateway;
