@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./premium-dashboard.css";
 
 export const metadata: Metadata = {
   title: "Blackpay — Confidential Payroll",
