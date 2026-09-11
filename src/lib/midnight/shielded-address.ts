@@ -1,4 +1,14 @@
-import { MidnightBech32m, ShieldedAddress } from "@midnight-ntwrk/wallet-sdk-address-format";
+import {
+  MidnightBech32m,
+  ShieldedAddress,
+  ShieldedCoinPublicKey,
+} from "@midnight-ntwrk/wallet-sdk-address-format";
+
+function hex32(value: string, label: string): string {
+  const normalized = value.toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) throw new Error(`${label} is not 32 bytes`);
+  return normalized;
+}
 
 export function shieldedCoinPublicKeyHex(address: string, networkId: string): string {
   const normalized = address.trim();
@@ -6,14 +16,24 @@ export function shieldedCoinPublicKeyHex(address: string, networkId: string): st
   try {
     const parsed = MidnightBech32m.parse(normalized);
     const decoded = parsed.decode(ShieldedAddress, networkId);
-    const coinPublicKeyHex = decoded.coinPublicKeyString().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(coinPublicKeyHex)) {
-      throw new Error("decoded coin public key is not 32 bytes");
-    }
-    return coinPublicKeyHex;
+    return hex32(decoded.coinPublicKeyString(), "Decoded shielded coin public key");
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid ${networkId} Midnight shielded address: ${detail}`);
+  }
+}
+
+export function connectedShieldedCoinPublicKeyHex(value: string, networkId: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw new Error("Connected wallet returned no shielded coin public key");
+  if (/^[0-9a-f]{64}$/i.test(normalized)) return normalized.toLowerCase();
+  try {
+    const parsed = MidnightBech32m.parse(normalized);
+    const decoded = parsed.decode(ShieldedCoinPublicKey, networkId);
+    return hex32(decoded.toHexString(), "Connected shielded coin public key");
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid ${networkId} shielded coin public key from Lace: ${detail}`);
   }
 }
 
