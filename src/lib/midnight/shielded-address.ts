@@ -1,7 +1,6 @@
 import {
   MidnightBech32m,
   ShieldedAddress,
-  ShieldedCoinPublicKey,
 } from "@midnight-ntwrk/wallet-sdk-address-format";
 
 function hex32(value: string, label: string): string {
@@ -23,14 +22,24 @@ export function shieldedCoinPublicKeyHex(address: string, networkId: string): st
   }
 }
 
+/**
+ * Lace may expose the shielded coin public key either as raw 32-byte hex or
+ * as the dedicated mn_shield-cpk_<network> Bech32m form. ShieldedCoinPublicKey
+ * intentionally does not expose the generic HasCodec static hook in the
+ * ledger-8 address-format package, so validate the parsed envelope directly
+ * and read its canonical 32-byte payload instead of forcing decode().
+ */
 export function connectedShieldedCoinPublicKeyHex(value: string, networkId: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error("Connected wallet returned no shielded coin public key");
   if (/^[0-9a-f]{64}$/i.test(normalized)) return normalized.toLowerCase();
   try {
     const parsed = MidnightBech32m.parse(normalized);
-    const decoded = parsed.decode(ShieldedCoinPublicKey, networkId);
-    return hex32(decoded.toHexString(), "Connected shielded coin public key");
+    if (parsed.type !== "shield-cpk") throw new Error(`expected shield-cpk, got ${parsed.type}`);
+    if (typeof parsed.network !== "string" || parsed.network !== networkId) {
+      throw new Error(`expected ${networkId} shielded coin public key`);
+    }
+    return hex32(parsed.data.toString("hex"), "Connected shielded coin public key");
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid ${networkId} shielded coin public key from Lace: ${detail}`);
