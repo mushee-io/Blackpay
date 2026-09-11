@@ -8,6 +8,7 @@
 
 html { background: #f4f2ed; }
 body { margin: 0; min-height: 100vh; background: #f4f2ed; }
+a { color: inherit; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
@@ -21,6 +22,7 @@ h1 { margin: 5px 0 0; font-size: clamp(42px, 7vw, 88px); line-height: .86; lette
 .walletConnected { font-size: 13px; }
 
 .primary, .secondary { border: 1px solid #101010; min-height: 42px; padding: 0 16px; text-transform: uppercase; font-family: "Courier New", monospace; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+a.primary, a.secondary { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .primary { background: #101010; color: #fff; }
 .secondary { background: transparent; color: #101010; }
 .primary:hover:not(:disabled) { background: #2a2a2a; }
@@ -57,6 +59,18 @@ textarea { resize: vertical; min-height: 130px; }
 .protocolPanel dt, .protocolPanel dd { margin: 0; font-family: "Courier New", monospace; font-size: 12px; }
 .protocolPanel dd { font-weight: 700; }
 
+.employeeAccessBlock { margin-top: 28px; padding-top: 24px; border-top: 1px solid #101010; }
+.employeeAccessBlock p { color: #454545; font-size: 12px; line-height: 1.5; }
+.employeeHero { max-width: 1100px; }
+.lockedPortal { background: #e8e5de; }
+.payslipGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 24px 0; }
+.payslipCard { border: 1px solid #101010; padding: 20px; background: #f4f2ed; }
+.payslipHeader { display: flex; justify-content: space-between; gap: 16px; font-family: "Courier New", monospace; font-size: 11px; letter-spacing: .06em; }
+.payslipAmount { margin: 28px 0; font-size: clamp(34px, 5vw, 64px); font-weight: 800; letter-spacing: -.055em; }
+.payslipCard dl { margin: 0; }
+.payslipCard dl div { display: flex; justify-content: space-between; gap: 18px; border-top: 1px solid #101010; padding: 11px 0; }
+.payslipCard dt, .payslipCard dd { margin: 0; font-family: "Courier New", monospace; font-size: 11px; word-break: break-word; }
+
 footer { display: flex; justify-content: space-between; gap: 20px; padding-top: 26px; }
 
 @media (max-width: 900px) {
@@ -66,7 +80,7 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding-top: 
   .statusGrid { grid-template-columns: repeat(2, 1fr); }
   .workspaceGrid { grid-template-columns: 1fr; }
   .panel.wide { grid-column: span 1; }
-  .twoCol { grid-template-columns: 1fr; gap: 0; }
+  .twoCol, .payslipGrid { grid-template-columns: 1fr; gap: 0; }
 }
 
 @media (max-width: 560px) {
