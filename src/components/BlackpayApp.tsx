@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { PreviewRuntimeClientOnly } from "@/components/PreviewRuntimeClientOnly";
 import { getMidnightPublicConfig } from "@/lib/midnight/network";
 import {
   connectMidnightWallet,
+  getConnectedMidnightWallet,
   listMidnightWallets,
   type AvailableWallet,
   type ConnectedWallet,
@@ -24,6 +27,8 @@ import { getEmployeeWitness, putEmployeeWitness } from "@/lib/payroll/session-st
 import { newPrivateSaltHex } from "@/lib/payroll/validation";
 import type { PayrollFrequency, PrivatePayrollPayment } from "@/lib/payroll/types";
 
+export type BlackpaySection = "dashboard" | "workspace" | "employees" | "pay-runs" | "proofs" | "runtime";
+
 type PreparedPayRun = {
   payRunIdHex: string;
   payments: PrivatePayrollPayment[];
@@ -33,6 +38,60 @@ type ShieldedTokenBalance = {
   type: string;
   balance: bigint;
 };
+
+type PageMeta = {
+  eyebrow: string;
+  title: string;
+  description: string;
+};
+
+const PAGE_META: Record<BlackpaySection, PageMeta> = {
+  dashboard: {
+    eyebrow: "Employer console",
+    title: "Dashboard",
+    description: "Private payroll operations, contract health and employee settlement in one controlled workspace.",
+  },
+  workspace: {
+    eyebrow: "Foundation",
+    title: "Workspace",
+    description: "Configure the private payroll workspace and its operating cadence.",
+  },
+  employees: {
+    eyebrow: "People",
+    title: "Employees",
+    description: "Register employees without publishing salary or payout information.",
+  },
+  "pay-runs": {
+    eyebrow: "Payroll",
+    title: "Pay runs",
+    description: "Create, approve and fund exact contract-bound payroll claims.",
+  },
+  proofs: {
+    eyebrow: "Verification",
+    title: "Proofs",
+    description: "Generate privacy-preserving income proofs without revealing exact compensation.",
+  },
+  runtime: {
+    eyebrow: "Midnight infrastructure",
+    title: "Runtime",
+    description: "Deploy or join the canonical Blackpay v2 contract and manage encrypted recovery.",
+  },
+};
+
+const NAV_PRIMARY: Array<{ section?: BlackpaySection; href: string; label: string }> = [
+  { section: "dashboard", href: "/", label: "Dashboard" },
+  { section: "workspace", href: "/workspace", label: "Workspace" },
+  { section: "employees", href: "/employees", label: "Employees" },
+  { section: "pay-runs", href: "/pay-runs", label: "Pay runs" },
+  { section: "proofs", href: "/proofs", label: "Proofs" },
+];
+
+const NAV_PRIVATE = [
+  { href: "/disclosures", label: "Disclosures" },
+  { href: "/employee-access", label: "Employee access" },
+  { href: "/audit", label: "Audit" },
+  { href: "/employee", label: "Employee portal" },
+];
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown Blackpay error";
@@ -66,8 +125,9 @@ function shortToken(value: string): string {
   return value.length > 20 ? `${value.slice(0, 10)}…${value.slice(-8)}` : value;
 }
 
-export function BlackpayApp() {
+export function BlackpayApp({ section = "dashboard" }: { section?: BlackpaySection }) {
   const config = useMemo(() => getMidnightPublicConfig(), []);
+  const meta = PAGE_META[section];
   const [wallets, setWallets] = useState<AvailableWallet[]>([]);
   const [connected, setConnected] = useState<ConnectedWallet | null>(null);
   const [runtimeReady, setRuntimeReady] = useState(false);
@@ -90,18 +150,37 @@ export function BlackpayApp() {
   const [proofEmployeeId, setProofEmployeeId] = useState("");
   const [proofThreshold, setProofThreshold] = useState("");
 
+  async function hydrateWallet(connection: ConnectedWallet) {
+    setConnected(connection);
+    const balances = await connection.api.getShieldedBalances();
+    const supported: ShieldedTokenBalance[] = [];
+    for (const [type, balance] of Object.entries(balances)) {
+      try {
+        const rawType = assertTokenColorHex(type);
+        if (balance > 0n) supported.push({ type: rawType, balance });
+      } catch {
+        // Ignore wallet entries that are not raw shielded token types.
+      }
+    }
+    setTokenBalances(supported);
+    const configured = config.payrollTokenType ? (() => {
+      try { return assertTokenColorHex(config.payrollTokenType); } catch { return ""; }
+    })() : "";
+    const selected = supported.find((entry) => entry.type === configured)?.type ?? supported[0]?.type ?? configured;
+    setPayrollTokenType(selected || "");
+  }
+
   useEffect(() => {
     setWallets(listMidnightWallets());
     setRuntimeReady(isPayrollContractGatewayReady());
+    try {
+      const existing = getConnectedMidnightWallet();
+      void hydrateWallet(existing).catch(() => setConnected(null));
+    } catch {
+      // No active in-memory wallet session yet.
+    }
     return subscribePayrollContractGateway(setRuntimeReady);
   }, []);
-
-  useEffect(() => {
-    if (connected && runtimeReady) {
-      setFailure("");
-      setNotice(`Blackpay protocol v2 runtime active on ${config.network}. Contract-bound payroll actions are enabled.`);
-    }
-  }, [connected, runtimeReady, config.network]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -119,24 +198,8 @@ export function BlackpayApp() {
   async function connect(walletId?: string) {
     await run(async () => {
       const connection = await connectMidnightWallet(walletId);
-      setConnected(connection);
-      const balances = await connection.api.getShieldedBalances();
-      const supported: ShieldedTokenBalance[] = [];
-      for (const [type, balance] of Object.entries(balances)) {
-        try {
-          const rawType = assertTokenColorHex(type);
-          if (balance > 0n) supported.push({ type: rawType, balance });
-        } catch {
-          // Ignore wallet balance entries that are not raw shielded token types.
-        }
-      }
-      setTokenBalances(supported);
-      const configured = config.payrollTokenType ? (() => {
-        try { return assertTokenColorHex(config.payrollTokenType); } catch { return ""; }
-      })() : "";
-      const selected = supported.find((entry) => entry.type === configured)?.type ?? supported[0]?.type ?? configured;
-      setPayrollTokenType(selected || "");
-      setNotice(`Connected to ${connection.name} on ${config.network}. ${supported.length ? `${supported.length} spendable shielded token type(s) detected.` : "No spendable raw shielded token type was detected."}`);
+      await hydrateWallet(connection);
+      setNotice(`Connected to ${connection.name} on ${config.network}.`);
     });
   }
 
@@ -152,7 +215,7 @@ export function BlackpayApp() {
         frequency,
       });
       await rememberPrivateWorkspaceCurrency(currencyCode);
-      setNotice(`Blackpay v2 workspace transaction submitted: ${result.transactionId}`);
+      setNotice(`Workspace submitted: ${result.transactionId}`);
     });
   }
 
@@ -175,7 +238,7 @@ export function BlackpayApp() {
       const result = await getPayrollContractGateway().addEmployee({ employeeIdHex, witness });
       setSalaryMinor("");
       setShieldedRecipient("");
-      setNotice(`Private v2 employee commitment submitted: ${result.transactionId}. Salary and payout key remain private witness material.`);
+      setNotice(`Private employee commitment submitted: ${result.transactionId}`);
     });
   }
 
@@ -201,7 +264,7 @@ export function BlackpayApp() {
       const result = await getPayrollContractGateway().createPayRun({ payRunIdHex, period, tokenColorHex, payments: settlementPayments });
       await recordPortalPayslipsForPayRun({ payRunIdHex, period, payments, currencyCode: currencyCode || undefined });
       setPreparedRuns((current) => ({ ...current, [payRunIdHex]: { payRunIdHex, payments } }));
-      setNotice(`Private pay run created in ${result.transactionId}; ${result.registrationTransactionIds.length} exact payment claim(s) were registered against the committed payment root.`);
+      setNotice(`Pay run created in ${result.transactionId}. ${result.registrationTransactionIds.length} exact payment claim(s) registered.`);
     });
   }
 
@@ -210,7 +273,7 @@ export function BlackpayApp() {
       if (!connected) throw new Error("Connect a Midnight wallet first");
       const payRunIdHex = await privateId("blackpay:payrun-id:v2", payRunId);
       const result = await getPayrollContractGateway().approvePayRun(payRunIdHex);
-      setNotice(`Pay run approved: ${result.transactionId}. The contract verified every registered payment against the private committed payment root.`);
+      setNotice(`Pay run approved: ${result.transactionId}`);
     });
   }
 
@@ -220,7 +283,7 @@ export function BlackpayApp() {
       assertTokenColorHex(payrollTokenType);
       const payRunIdHex = await privateId("blackpay:payrun-id:v2", payRunId);
       const prepared = preparedRuns[payRunIdHex];
-      if (!prepared) throw new Error("This v2 pay run is not available in the current encrypted employer session");
+      if (!prepared) throw new Error("This pay run is not available in the current encrypted employer session");
       const gateway = getPayrollContractGateway();
       let newlyFunded = 0;
       let alreadyFunded = 0;
@@ -234,7 +297,7 @@ export function BlackpayApp() {
           if (result.transactionId) txIds.push(result.transactionId);
         }
       }
-      setNotice(`Contract-bound payroll funding complete: ${newlyFunded} newly funded, ${alreadyFunded} already funded. ${txIds.length ? `Funding tx(s): ${txIds.join(", ")}. ` : ""}Export a fresh encrypted employee access package now; the employee must claim the funded salary from /employee.`);
+      setNotice(`Funding complete: ${newlyFunded} newly funded, ${alreadyFunded} already funded.${txIds.length ? ` Transactions: ${txIds.join(", ")}.` : ""}`);
     });
   }
 
@@ -248,163 +311,195 @@ export function BlackpayApp() {
       const employeeIdHex = await privateId("blackpay:employee-id:v2", proofEmployeeId);
       const witness = getEmployeeWitness(employeeIdHex);
       const result = await getPayrollContractGateway().proveIncomeAtLeast({ employeeIdHex, thresholdMinor, nonceHex: newPrivateSaltHex(), witness });
-      setNotice(`Income proof ${result.proofIdHex} submitted in ${result.transactionId}. Exact salary was not disclosed.`);
+      setNotice(`Income proof ${result.proofIdHex} submitted in ${result.transactionId}.`);
     });
   }
 
   const liveReady = Boolean(connected && runtimeReady);
-  const contractStatus = runtimeReady ? "V2 LIVE / JOINED" : connected ? "V2 DEPLOY REQUIRED" : "WAITING";
+  const contractStatus = runtimeReady ? "Joined" : connected ? "Deployment required" : "Not connected";
 
-  return (
-    <main className="blackpayAppShell">
-      <aside className="appSidebar">
-        <a className="brandLockup" href="#top" aria-label="Blackpay dashboard home">
-          <span className="brandGlyph" aria-hidden="true"><span /><span /><span /></span>
-          <span className="brandText">Blackpay<small>Preview</small></span>
-        </a>
-
-        <div className="sidebarGroup">
-          <span className="sidebarLabel">Quick access</span>
-          <nav className="sidebarNav" aria-label="Blackpay employer navigation">
-            <a className="active" href="#top"><span className="navIcon">⌂</span>Dashboard</a>
-            <a href="#workspace"><span className="navIcon">◫</span>Workspace</a>
-            <a href="#employees"><span className="navIcon">◎</span>Employees</a>
-          </nav>
-        </div>
-
-        <div className="sidebarGroup">
-          <span className="sidebarLabel">Payroll</span>
-          <nav className="sidebarNav">
-            <a href="#pay-runs"><span className="navIcon">↗</span>Pay runs</a>
-            <a href="#proofs"><span className="navIcon">◇</span>Proofs</a>
-            <a href="/employee"><span className="navIcon">↳</span>Employee portal</a>
-          </nav>
-        </div>
-
-        <div className="sidebarWalletCard">
-          <div className="walletMiniTop">
-            <span className={connected ? "statusDot online" : "statusDot"} />
-            <span>{connected ? connected.name : "Wallet not connected"}</span>
+  function renderDashboard() {
+    return (
+      <>
+        <section className="executiveHero">
+          <div>
+            <span className="sectionKicker">Confidential payroll infrastructure</span>
+            <h2>Private payroll.<br />Verifiable settlement.</h2>
+            <p>Blackpay keeps compensation and payout data private while preserving auditable payroll state on Midnight.</p>
           </div>
-          <strong>{runtimeReady ? "Runtime ready" : "Private payroll locked"}</strong>
-          <small>{config.network.toUpperCase()} · BLACKPAY V2</small>
-          <a href="#midnight-runtime">Open runtime →</a>
-        </div>
-      </aside>
-
-      <section className="appMain" id="top">
-        <header className="appTopbar">
-          <div className="topbarTitle">
-            <span className="eyebrow">Employer workspace</span>
-            <h1>Dashboard</h1>
-          </div>
-          <div className="topActions">
-            <a className="secondary" href="/employee">Employee portal</a>
-            <span className="network">{config.network.toUpperCase()}</span>
-            {connected ? <span className="walletConnected">{connected.name}</span> : wallets.length <= 1 ? (
-              <button className="primary" disabled={busy} onClick={() => connect(wallets[0]?.id)}>Connect wallet</button>
-            ) : wallets.map((wallet) => <button className="secondary" disabled={busy} key={wallet.id} onClick={() => connect(wallet.id)}>{wallet.name}</button>)}
-          </div>
-        </header>
-
-        <section className="hero appHero">
-          <div className="heroGlow heroGlowOne" />
-          <div className="heroGlow heroGlowTwo" />
-          <div className="heroContent">
-            <span className="heroPill">✦ Private payroll on Midnight</span>
-            <p className="kicker">PRIVATE SALARIES · PUBLIC PROOF</p>
-            <h2>Payroll onchain.<br /><span>Privacy by default.</span></h2>
-            <p className="heroCopy">Create confidential pay runs, fund exact employee claims, and let the bound employee wallet claim salary without publishing compensation data.</p>
-            <div className="heroActions">
-              <a className="primary" href="#pay-runs">Create pay run</a>
-              <a className="secondary" href="#midnight-runtime">Open runtime</a>
-            </div>
-          </div>
-          <div className="heroVisual" aria-hidden="true">
-            <div className="heroVisualCard heroVisualCardBack"><span>PROOF</span><strong>PRIVATE</strong></div>
-            <div className="heroVisualCard heroVisualCardFront"><span>PAYROLL</span><strong>{runtimeReady ? "LIVE" : "READY"}</strong><i>●</i></div>
+          <div className="heroMetricBlock">
+            <span>Protocol</span><strong>V2</strong><small>Contract-bound claims</small>
           </div>
         </section>
 
-        <section className="statusGrid" aria-label="Blackpay runtime status">
-          <article className="statusCard statusPink"><span>Wallet</span><strong>{connected ? "Connected" : wallets.length ? "Ready" : "Not detected"}</strong><small>Midnight Lace</small></article>
-          <article className="statusCard statusBlue"><span>Contract</span><strong>{contractStatus}</strong><small>Protocol v2</small></article>
-          <article className="statusCard statusPurple"><span>Settlement</span><strong>Claim bound</strong><small>One-time employee claim</small></article>
-          <article className="statusCard statusCream"><span>Network</span><strong>{config.network.toUpperCase()}</strong><small>Testnet environment</small></article>
+        <section className="statusGrid professionalStatus" aria-label="Blackpay status">
+          <article className="statusCard"><span>Wallet</span><strong>{connected ? "Connected" : wallets.length ? "Available" : "Not detected"}</strong><small>Lace / Midnight</small></article>
+          <article className="statusCard"><span>Contract</span><strong>{contractStatus}</strong><small>Protocol v2</small></article>
+          <article className="statusCard"><span>Settlement</span><strong>Claim bound</strong><small>One-time employee claim</small></article>
+          <article className="statusCard"><span>Network</span><strong>{config.network.toUpperCase()}</strong><small>Test environment</small></article>
         </section>
 
-        {(notice || failure) && <section className={failure ? "message error" : "message success"}>{failure || notice}</section>}
-        {connected && !runtimeReady && <section className="message error">Wallet connected, but no Blackpay v2 runtime is active. Deploy a new v2 contract or join a verified one below. <a href="#midnight-runtime">Open runtime ↓</a></section>}
-
-        <section className="sectionIntro">
-          <span className="sectionPill">Payroll workspace</span>
-          <div><h2>Everything private payroll needs.</h2><p>Move from workspace setup to employee commitments, confidential pay runs, and zero-knowledge proofs without exposing salary data.</p></div>
+        <section className="dashboardSection">
+          <div className="sectionHeading"><div><span className="sectionKicker">Operations</span><h3>Payroll workspace</h3></div><p>Each operational area now has its own dedicated workspace.</p></div>
+          <div className="routeCardGrid">
+            <Link className="routeCard" href="/workspace"><span>01</span><h4>Workspace</h4><p>Configure payroll identity, currency and cadence.</p><b>Open workspace →</b></Link>
+            <Link className="routeCard" href="/employees"><span>02</span><h4>Employees</h4><p>Commit private employee salary and payout records.</p><b>Manage employees →</b></Link>
+            <Link className="routeCard featured" href="/pay-runs"><span>03</span><h4>Pay runs</h4><p>Create, approve and fund contract-bound salary claims.</p><b>Open pay runs →</b></Link>
+            <Link className="routeCard" href="/proofs"><span>04</span><h4>Proofs</h4><p>Generate income proofs without exposing compensation.</p><b>Open proofs →</b></Link>
+          </div>
         </section>
 
-        <section className="workspaceGrid">
-          <form className="panel" id="workspace" onSubmit={createWorkspace}>
-            <div className="panelNumber">01</div><h3>Employer workspace</h3><p>Create the private payroll workspace and set the payroll frequency. Company and currency labels are hashed before submission.</p>
+        <section className="privacyStatement">
+          <span className="sectionKicker">Privacy boundary</span>
+          <h3>What payroll needs to prove — without publishing what payroll needs to protect.</h3>
+          <div className="privacyRows">
+            <div><span>Exact salary</span><strong>Private</strong></div>
+            <div><span>Payout wallet</span><strong>Private / committed</strong></div>
+            <div><span>Funding</span><strong>Contract custody</strong></div>
+            <div><span>Employee claim</span><strong>One time</strong></div>
+          </div>
+        </section>
+      </>
+    );
+  }
+
+  function renderWorkspace() {
+    return (
+      <section className="singleWorkspace">
+        <form className="panel primaryPanel" onSubmit={createWorkspace}>
+          <div className="panelHeader"><div><span className="sectionKicker">Workspace configuration</span><h3>Employer workspace</h3></div><span className="securityTag">Hashed on submission</span></div>
+          <p>Create the operating context for private payroll. Company and currency labels are hashed before the contract call.</p>
+          <div className="formSection">
             <label>Company name<input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Company" /></label>
             <label>Currency / token label<input value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} placeholder="USDM" /></label>
-            <label>Frequency<select value={frequency} onChange={(e) => setFrequency(e.target.value as PayrollFrequency)}><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option></select></label>
-            <button className="primary full" disabled={busy || !liveReady}>Create workspace</button>
-          </form>
+            <label>Payroll frequency<select value={frequency} onChange={(e) => setFrequency(e.target.value as PayrollFrequency)}><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option></select></label>
+          </div>
+          <div className="actionBar"><span>Requires connected wallet + active v2 runtime.</span><button className="primary" disabled={busy || !liveReady}>Create workspace</button></div>
+        </form>
+      </section>
+    );
+  }
 
-          <form className="panel" id="employees" onSubmit={addEmployee}>
-            <div className="panelNumber">02</div><h3>Private employee</h3><p>Add an employee without publishing salary, payout address, payout key, or private salt.</p>
+  function renderEmployees() {
+    return (
+      <section className="singleWorkspace">
+        <form className="panel primaryPanel" onSubmit={addEmployee}>
+          <div className="panelHeader"><div><span className="sectionKicker">Private registry</span><h3>Add employee</h3></div><span className="securityTag">Private witness</span></div>
+          <p>Salary, full payout address, payout key and private salt stay off the public ledger. Only the employee commitment is published.</p>
+          <div className="formSection">
             <label>Employee reference<input value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="Internal employee ID" /></label>
             <label>Salary in minor units<input inputMode="numeric" value={salaryMinor} onChange={(e) => setSalaryMinor(e.target.value)} placeholder="325000" /></label>
             <label>Shielded recipient<input value={shieldedRecipient} onChange={(e) => setShieldedRecipient(e.target.value)} placeholder="Midnight shielded address" /></label>
-            <button className="primary full" disabled={busy || !liveReady}>Commit employee</button>
-          </form>
+          </div>
+          <div className="actionBar"><span>No salary amount is written to public storage.</span><button className="primary" disabled={busy || !liveReady}>Commit employee</button></div>
+        </form>
+      </section>
+    );
+  }
 
-          <form className="panel wide payRunPanel" id="pay-runs" onSubmit={createPayRun}>
-            <div className="panelNumber">03</div>
-            <div className="panelHeadingRow"><div><h3>Confidential pay run</h3><p>Register exact private payment claims, approve the committed payment set, then fund contract custody for employee claim.</p></div><span className="privacyBadge">Private by design</span></div>
-            <div className="twoCol">
-              <label>Pay run reference<input value={payRunId} onChange={(e) => setPayRunId(e.target.value)} placeholder="2026-09" /></label>
-              <label>Period number<input inputMode="numeric" value={payPeriod} onChange={(e) => setPayPeriod(e.target.value)} placeholder="202609" /></label>
-            </div>
-            <label>Payroll token (Lace shielded balance)
-              <select value={payrollTokenType} onChange={(e) => setPayrollTokenType(e.target.value)}>
-                <option value="">Select real shielded token</option>
-                {tokenBalances.map((entry) => <option value={entry.type} key={entry.type}>{shortToken(entry.type)} · {entry.balance.toString()}</option>)}
-                {payrollTokenType && !tokenBalances.some((entry) => entry.type === payrollTokenType) && <option value={payrollTokenType}>{shortToken(payrollTokenType)} · configured</option>}
-              </select>
-            </label>
-            <label>Payments<textarea value={paymentRows} onChange={(e) => setPaymentRows(e.target.value)} rows={6} placeholder="employee-001 | 325000 | shielded-address" /></label>
-            <div className="flowSteps" aria-label="Pay run lifecycle">
-              <span><b>1</b>Create</span><i>→</i><span><b>2</b>Approve</span><i>→</i><span><b>3</b>Fund</span><i>→</i><span><b>4</b>Employee claims</span>
-            </div>
-            <div className="buttonRow">
-              <button className="primary" disabled={busy || !liveReady || !payrollTokenType}>Create pay run</button>
-              <button className="secondary" type="button" disabled={busy || !liveReady} onClick={approveCurrentPayRun}>Approve</button>
-              <button className="secondary" type="button" disabled={busy || !liveReady || !payrollTokenType} onClick={fundCurrentPayRun}>Fund contract claims</button>
-            </div>
-            <p>After funding, export a fresh employee access package. The employee claims the contract-held salary from the Employee Portal; the claim is fixed to the registered payout key and can settle only once.</p>
-          </form>
+  function renderPayRuns() {
+    return (
+      <section className="singleWorkspace">
+        <form className="panel primaryPanel payRunPanel" onSubmit={createPayRun}>
+          <div className="panelHeader"><div><span className="sectionKicker">Contract-bound settlement</span><h3>Confidential pay run</h3></div><span className="securityTag">Exact claim set</span></div>
+          <p>Register the exact private payment set, approve the committed root, then fund contract custody for employee claim.</p>
+          <div className="flowSteps professionalFlow" aria-label="Pay run lifecycle">
+            <span><b>01</b>Create</span><i>→</i><span><b>02</b>Approve</span><i>→</i><span><b>03</b>Fund</span><i>→</i><span><b>04</b>Claim</span>
+          </div>
+          <div className="twoCol">
+            <label>Pay run reference<input value={payRunId} onChange={(e) => setPayRunId(e.target.value)} placeholder="2026-09" /></label>
+            <label>Period number<input inputMode="numeric" value={payPeriod} onChange={(e) => setPayPeriod(e.target.value)} placeholder="202609" /></label>
+          </div>
+          <label>Payroll token
+            <select value={payrollTokenType} onChange={(e) => setPayrollTokenType(e.target.value)}>
+              <option value="">Select shielded token</option>
+              {tokenBalances.map((entry) => <option value={entry.type} key={entry.type}>{shortToken(entry.type)} · {entry.balance.toString()}</option>)}
+              {payrollTokenType && !tokenBalances.some((entry) => entry.type === payrollTokenType) && <option value={payrollTokenType}>{shortToken(payrollTokenType)} · configured</option>}
+            </select>
+          </label>
+          <label>Private payment rows<textarea value={paymentRows} onChange={(e) => setPaymentRows(e.target.value)} rows={7} placeholder="employee-001 | 325000 | shielded-address" /></label>
+          <div className="actionBar multiAction"><span>Keep this page open through create → approve → fund so the private session remains active.</span><div><button className="primary" disabled={busy || !liveReady || !payrollTokenType}>Create pay run</button><button className="secondary" type="button" disabled={busy || !liveReady} onClick={approveCurrentPayRun}>Approve</button><button className="secondary" type="button" disabled={busy || !liveReady || !payrollTokenType} onClick={fundCurrentPayRun}>Fund claims</button></div></div>
+        </form>
+      </section>
+    );
+  }
 
-          <form className="panel proofPanel" id="proofs" onSubmit={proveIncome}>
-            <div className="panelNumber">04</div><h3>Proof of income</h3><p>Prove salary meets a threshold without revealing the exact salary.</p>
+  function renderProofs() {
+    return (
+      <section className="singleWorkspace">
+        <form className="panel primaryPanel" onSubmit={proveIncome}>
+          <div className="panelHeader"><div><span className="sectionKicker">Zero-knowledge verification</span><h3>Proof of income</h3></div><span className="securityTag">Salary hidden</span></div>
+          <p>Prove that a private salary meets a requested threshold without revealing the salary itself.</p>
+          <div className="formSection">
             <label>Employee reference<input value={proofEmployeeId} onChange={(e) => setProofEmployeeId(e.target.value)} placeholder="Internal employee ID" /></label>
             <label>Threshold in minor units<input inputMode="numeric" value={proofThreshold} onChange={(e) => setProofThreshold(e.target.value)} placeholder="250000" /></label>
-            <button className="primary full" disabled={busy || !liveReady}>Generate proof</button>
-          </form>
+          </div>
+          <div className="actionBar"><span>The exact salary remains private.</span><button className="primary" disabled={busy || !liveReady}>Generate proof</button></div>
+        </form>
+      </section>
+    );
+  }
 
-          <article className="panel protocolPanel">
-            <div className="panelNumber">05</div><h3>Privacy boundary</h3><p>What stays hidden, what is committed, and what the protocol enforces.</p>
-            <dl>
-              <div><dt>Exact salary</dt><dd>Private</dd></div>
-              <div><dt>Payout wallet</dt><dd>Private / committed</dd></div>
-              <div><dt>Payment set</dt><dd>Root committed</dd></div>
-              <div><dt>Funding</dt><dd>Contract custody</dd></div>
-              <div><dt>Employee claim</dt><dd>One time</dd></div>
-              <div><dt>Arbitrary tx finalize</dt><dd>Removed</dd></div>
-            </dl>
-          </article>
-        </section>
+  function renderRuntime() {
+    return <section className="runtimeWorkspace"><PreviewRuntimeClientOnly /></section>;
+  }
 
-        <footer><span>BLACKPAY / PROTOCOL V2</span><span>Private salaries · Public proof · Contract-bound settlement</span></footer>
+  const body = section === "dashboard" ? renderDashboard() : section === "workspace" ? renderWorkspace() : section === "employees" ? renderEmployees() : section === "pay-runs" ? renderPayRuns() : section === "proofs" ? renderProofs() : renderRuntime();
+
+  return (
+    <main className="blackpayAppShell professionalShell">
+      <aside className="appSidebar professionalSidebar">
+        <Link className="brandLockup professionalBrand" href="/" aria-label="Blackpay dashboard">
+          <span className="brandGlyph professionalGlyph" aria-hidden="true"><span /><span /></span>
+          <span className="brandText">Blackpay<small>Protocol v2</small></span>
+        </Link>
+
+        <div className="sidebarGroup">
+          <span className="sidebarLabel">Employer</span>
+          <nav className="sidebarNav" aria-label="Employer navigation">
+            {NAV_PRIMARY.map((item) => <Link key={item.href} className={item.section === section ? "active" : ""} href={item.href}>{item.label}</Link>)}
+          </nav>
+        </div>
+
+        <div className="sidebarGroup">
+          <span className="sidebarLabel">Private operations</span>
+          <nav className="sidebarNav">
+            {NAV_PRIVATE.map((item) => <Link key={item.href} href={item.href}>{item.label}</Link>)}
+          </nav>
+        </div>
+
+        <div className="sidebarGroup sidebarUtility">
+          <span className="sidebarLabel">Infrastructure</span>
+          <nav className="sidebarNav"><Link className={section === "runtime" ? "active" : ""} href="/runtime">Runtime & recovery</Link></nav>
+        </div>
+
+        <div className="sidebarWalletCard professionalWalletCard">
+          <div><span className={connected ? "statusDot online" : "statusDot"} /><span>{connected ? connected.name : "Wallet disconnected"}</span></div>
+          <strong>{runtimeReady ? "Runtime ready" : "Runtime inactive"}</strong>
+          <small>{config.network.toUpperCase()} · TESTNET</small>
+        </div>
+      </aside>
+
+      <section className="appMain professionalMain">
+        <header className="appTopbar professionalTopbar">
+          <div className="topbarTitle"><span className="eyebrow">{meta.eyebrow}</span><h1>{meta.title}</h1><p>{meta.description}</p></div>
+          <div className="topActions">
+            <span className="network">{config.network.toUpperCase()}</span>
+            {connected ? <span className="walletConnected">{connected.name}</span> : wallets.length <= 1 ? (
+              <button className="primary compactButton" disabled={busy} onClick={() => connect(wallets[0]?.id)}>Connect wallet</button>
+            ) : wallets.map((wallet) => <button className="secondary compactButton" disabled={busy} key={wallet.id} onClick={() => connect(wallet.id)}>{wallet.name}</button>)}
+          </div>
+        </header>
+
+        {(notice || failure) && <section className={failure ? "message error" : "message success"}>{failure || notice}</section>}
+        {connected && !runtimeReady && section !== "runtime" && <section className="message warning">Wallet connected, but no Blackpay v2 runtime is active. <Link href="/runtime">Open runtime →</Link></section>}
+
+        <div className="pageCanvas">{body}</div>
+
+        <footer className="polishedFooter">
+          <div><span className="footerBrand">Blackpay</span><p>Confidential payroll on Midnight.</p></div>
+          <div className="footerMeta"><span>Protocol v2</span><span>{config.network.toUpperCase()} testnet</span><span>Private salaries · Public proof</span></div>
+        </footer>
       </section>
     </main>
   );
