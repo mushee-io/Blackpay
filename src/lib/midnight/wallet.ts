@@ -64,11 +64,36 @@ function assertRequestedNetwork(actual: string, requested: string): void {
   }
 }
 
+function assertSecureServiceUri(value: string, label: string, protocols: readonly string[]): void {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 2048) throw new Error(`Wallet returned an invalid ${label}`);
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(`Wallet returned an invalid ${label}`);
+  }
+  if (parsed.username || parsed.password) throw new Error(`Wallet ${label} must not contain embedded credentials`);
+  const local = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1";
+  const allowed = local ? ["http:", "https:", "ws:", "wss:"] : protocols;
+  if (!allowed.includes(parsed.protocol)) throw new Error(`Wallet ${label} must use a secure transport`);
+}
+
 function assertServiceConfiguration(configuration: Configuration, requestedNetwork: string): void {
   assertRequestedNetwork(configuration.networkId, requestedNetwork);
-  if (!configuration.indexerUri.trim()) throw new Error("Wallet returned no Midnight indexer URI");
-  if (!configuration.indexerWsUri.trim()) throw new Error("Wallet returned no Midnight indexer WebSocket URI");
-  if (!configuration.substrateNodeUri.trim()) throw new Error("Wallet returned no Midnight substrate node URI");
+  assertSecureServiceUri(configuration.indexerUri, "Midnight indexer URI", ["https:"]);
+  assertSecureServiceUri(configuration.indexerWsUri, "Midnight indexer WebSocket URI", ["wss:"]);
+  assertSecureServiceUri(configuration.substrateNodeUri, "Midnight substrate node URI", ["wss:", "https:"]);
+}
+
+function assertWalletField(value: string, label: string): void {
+  if (!value || value !== value.trim() || value.length > 4096 || /\s/.test(value)) {
+    throw new Error(`Wallet returned an invalid ${label}`);
+  }
+}
+
+function clearActiveConnection(wallet: ConnectedWallet): void {
+  if (activeConnection?.id === wallet.id) activeConnection = null;
 }
 
 export async function connectMidnightWallet(walletId?: string): Promise<ConnectedWallet> {
@@ -84,9 +109,9 @@ export async function connectMidnightWallet(walletId?: string): Promise<Connecte
   assertServiceConfiguration(configuration, requestedNetwork);
   const addresses = await api.getShieldedAddresses();
 
-  if (!addresses.shieldedAddress.trim()) throw new Error("Wallet returned no shielded address");
-  if (!addresses.shieldedCoinPublicKey.trim()) throw new Error("Wallet returned no shielded coin public key");
-  if (!addresses.shieldedEncryptionPublicKey.trim()) throw new Error("Wallet returned no shielded encryption public key");
+  assertWalletField(addresses.shieldedAddress, "shielded address");
+  assertWalletField(addresses.shieldedCoinPublicKey, "shielded coin public key");
+  assertWalletField(addresses.shieldedEncryptionPublicKey, "shielded encryption public key");
 
   await api.hintUsage([
     "getShieldedAddresses",
@@ -118,8 +143,26 @@ export function getConnectedMidnightWallet(): ConnectedWallet {
 export async function assertWalletStillConnected(wallet: ConnectedWallet): Promise<void> {
   const status = await wallet.api.getConnectionStatus();
   if (status.status !== "connected") {
-    if (activeConnection?.id === wallet.id) activeConnection = null;
+    clearActiveConnection(wallet);
     throw new Error("Midnight wallet session is no longer connected");
   }
-  assertRequestedNetwork(status.networkId, wallet.networkId);
+  try {
+    assertRequestedNetwork(status.networkId, wallet.networkId);
+  } catch (error) {
+    clearActiveConnection(wallet);
+    throw error;
+  }
+
+  const addresses = await wallet.api.getShieldedAddresses();
+  assertWalletField(addresses.shieldedAddress, "shielded address");
+  assertWalletField(addresses.shieldedCoinPublicKey, "shielded coin public key");
+  assertWalletField(addresses.shieldedEncryptionPublicKey, "shielded encryption public key");
+  if (
+    addresses.shieldedAddress !== wallet.addresses.shieldedAddress ||
+    addresses.shieldedCoinPublicKey !== wallet.addresses.shieldedCoinPublicKey ||
+    addresses.shieldedEncryptionPublicKey !== wallet.addresses.shieldedEncryptionPublicKey
+  ) {
+    clearActiveConnection(wallet);
+    throw new Error("Lace account changed during the Blackpay session. Reconnect the wallet before continuing.");
+  }
 }
