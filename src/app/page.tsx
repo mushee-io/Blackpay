@@ -1,5 +1,5 @@
-import { BlackpayAppClientOnly } from "@/components/BlackpayAppClientOnly";
+import { PremiumDashboardClientOnly } from "@/components/PremiumDashboardClientOnly";
 
 export default function HomePage() {
-  return <BlackpayAppClientOnly section="dashboard" />;
+  return <PremiumDashboardClientOnly />;
 }
