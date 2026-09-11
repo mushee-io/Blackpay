@@ -1,59 +1,65 @@
 # Blackpay integrations
 
-Blackpay integrations must preserve the same privacy boundary as the application: private salary values, payout destinations, salts, employee witness records, and private pay-run inputs must not be sent to public APIs or analytics.
+Blackpay integrations must preserve the application privacy boundary: salary values, payout destinations, salts, employee witnesses, private pay-run inputs, settlement capabilities, and funded-coin data must not be sent to public APIs, logs, or analytics.
 
-## Public-safe API
+## Public-safe status API
 
 `GET /api/v1/status`
 
-Returns only deployment-readiness metadata: service version, Midnight network, whether the contract/services are configured, privacy mode, and milestone status. It does not return payroll records.
+The `/api/v1` path is the HTTP API version, not the legacy payroll protocol version. It returns only public readiness metadata including app version, Blackpay `protocolVersion: 2`, Midnight network, whether a canonical v2 contract default is configured, wallet-managed infrastructure mode, settlement mode, employee-access version, privacy mode, and milestone status.
+
+Indexer, node, websocket, and proving endpoints are not configured through public Blackpay environment variables. The connected Lace wallet supplies its current service configuration and delegated proving provider.
 
 ## TypeScript SDK
 
-`src/lib/sdk/blackpay.ts` exposes `BlackpaySdk`, a typed façade over the registered `PayrollContractGateway`.
+`src/lib/sdk/blackpay.ts` exposes `BlackpaySdk`, a typed façade over the registered live `PayrollContractGateway`.
 
-The SDK does not create a simulated gateway. If generated Compact bindings and real Midnight providers have not registered a gateway, construction through the default path fails closed.
+The SDK never creates a simulated gateway. If a verified protocol-v2 Compact runtime and real Midnight providers have not registered a gateway, the default path fails closed.
 
-Supported protocol calls:
+Protocol-v2 calls include:
 
 - create employer workspace
-- add private employee commitment
-- create/approve/finalize pay run
-- prove income threshold
-- create verifier-scoped income disclosure
-- create verifier-scoped active-employment disclosure
-- revoke selective disclosure
+- add/update/remove private employee commitments
+- create a committed pay run and register exact employee payment claims
+- approve a pay run only after the payment root verifies
+- fund an employee payment claim into shielded contract custody
+- claim a funded salary to the fixed employee payout key
+- prove a private income threshold
+- create verifier-scoped income/employment disclosures
+- revoke a selective disclosure
+
+The legacy `finalizePayRun(transactionCommitment)` API is removed.
+
+## Employee access
+
+New protocol-v2 employee exports use encrypted `blackpay-employee-access-envelope-v3` packages. They contain only that employee's private record, payslips, and settlement capabilities. After employer funding, the package may include encrypted contract-held coin data required to prove the employee's one-time claim.
+
+Import verifies the connected Lace payout wallet, live employee commitment, and each live payment claim before installing the private capability.
 
 ## Selective disclosure
 
-A disclosure is bound to:
+A disclosure is bound to the employee commitment, disclosure kind, verifier identifier, expiry timestamp, and unique nonce-derived disclosure ID. Exact salary remains private.
 
-- the employee commitment
-- a disclosure kind
-- a verifier identifier commitment
-- an expiry timestamp
-- a unique nonce-derived disclosure ID
-
-Income disclosures store a hash of the threshold rather than the exact salary. Active-employment disclosures store a hash of the boolean fact.
-
-The current contract records expiry metadata but does not provide a standalone on-chain verifier circuit that evaluates current ledger time. Integrators must treat an expired disclosure as invalid, and the planned verifier adapter must enforce expiry before returning a valid result.
+The contract records expiry metadata but currently has no standalone verifier circuit that evaluates authoritative ledger time against `expiresAt`. Integrators must reject expired disclosures. This remains a separate trustless-verification hardening item and does not weaken the protocol-v2 payroll settlement binding.
 
 ## Payslips
 
-The current browser implementation stores payslips only in volatile session memory. This is intentional until encrypted private persistence and employee recovery are implemented. Public integrations must never receive the payslip amount fields.
+Payslips and settlement state are stored in Midnight's encrypted private-state provider, scoped to the wallet and contract. Public integrations must never receive payslip amount fields or funded-coin capabilities.
+
+Employee lifecycle status is derived from the exact v2 payment claim: `Registered`, `Funded`, or `Settled`.
 
 ## Audit bundles
 
-`buildPublicAuditBundle()` accepts only public 32-byte proof IDs, disclosure IDs, and settlement commitments. Its type intentionally contains no salary, recipient, salt, or witness fields.
+`buildPublicAuditBundle()` accepts public proof IDs, disclosure IDs, and commitment references only. Its type intentionally excludes salary, recipient, salt, witness, and private settlement capability fields.
 
 ## Live integration requirement
 
-Before a partner integration is called live:
+A partner integration is not live merely because TypeScript/Compact builds pass. The release gate is:
 
 ```bash
-npm run compact:compile
 npm run release:check
-npm run live:verify
 ```
 
-These checks do not replace an interactive Midnight Preview test. Wallet signing, contract deployment provenance, shielded settlement, disclosure creation/revocation, and proof verification must still be observed against the target network.
+and the same GitHub commit must pass all CI jobs: `app`, `compact`, and `live-assets`.
+
+Afterward, a real Midnight Preview run must demonstrate a new v2 contract deployment, workspace creation, employee registration, pay-run registration/approval, contract funding, fresh v3 employee package export/import, and successful one-time employee claim using Lace.
