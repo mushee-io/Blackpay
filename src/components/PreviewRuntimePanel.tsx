@@ -25,10 +25,17 @@ function saveJsonFile(name: string, value: unknown): void {
   URL.revokeObjectURL(url);
 }
 
+function contractStorageKey(network: string): string {
+  return `blackpay:${network}:contract-address`;
+}
+
 export function PreviewRuntimePanel() {
   const config = getMidnightPublicConfig();
   const [privateStatePassword, setPrivateStatePassword] = useState("");
-  const [contractAddress, setContractAddress] = useState(config.contractAddress);
+  const [contractAddress, setContractAddress] = useState(() => {
+    if (typeof window === "undefined") return config.contractAddress;
+    return window.localStorage.getItem(contractStorageKey(config.network)) ?? config.contractAddress;
+  });
   const [backupPassword, setBackupPassword] = useState("");
   const [backupFile, setBackupFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -50,6 +57,11 @@ export function PreviewRuntimePanel() {
     }
   }
 
+  function rememberContractAddress(address: string): void {
+    setContractAddress(address);
+    window.localStorage.setItem(contractStorageKey(config.network), address);
+  }
+
   async function initialize(mode: "deploy" | "join") {
     await run(async () => {
       const wallet = getConnectedMidnightWallet();
@@ -60,7 +72,7 @@ export function PreviewRuntimePanel() {
         mode,
         contractAddress: mode === "join" ? contractAddress : undefined,
       });
-      setContractAddress(result.contractAddress);
+      rememberContractAddress(result.contractAddress);
       setPrivateStatePassword("");
       setNotice(
         mode === "deploy"
@@ -102,7 +114,7 @@ export function PreviewRuntimePanel() {
         backupPassword,
         backup: parsed,
       });
-      setContractAddress(result.contractAddress);
+      rememberContractAddress(result.contractAddress);
       setPrivateStatePassword("");
       setBackupPassword("");
       setBackupFile(null);
@@ -111,11 +123,11 @@ export function PreviewRuntimePanel() {
   }
 
   return (
-    <section className="panel wide previewRuntime" aria-label="Midnight Preview runtime">
+    <section id="midnight-runtime" className="panel wide previewRuntime" aria-label="Midnight Preview runtime">
       <div className="panelNumber">LIVE</div>
       <h3>Midnight Preview runtime</h3>
       <p>
-        First connect the wallet in the Blackpay header. This runtime uses real Compact bindings, wallet-delegated proving, encrypted private state and indexer-confirmed calls.
+        This is the live gate. Wallet connection alone does not activate payroll. Deploy a real Compact contract or join a verified contract here; only after RUNTIME READY appears will the payroll controls above become active.
       </p>
 
       <div className="twoCol">
@@ -141,7 +153,7 @@ export function PreviewRuntimePanel() {
       </div>
 
       <div className="buttonRow">
-        <button type="button" className="primary" disabled={busy} onClick={() => initialize("join")}>
+        <button type="button" className="primary" disabled={busy || !contractAddress.trim()} onClick={() => initialize("join")}>
           JOIN VERIFIED CONTRACT
         </button>
         <button type="button" className="secondary" disabled={busy} onClick={() => initialize("deploy")}>
