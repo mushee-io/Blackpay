@@ -2,7 +2,7 @@ import {
   getPayrollContractGateway,
   type PayrollContractGateway,
   type PrivateEmployeeWitness,
-  type PrivatePayRunWitness,
+  type PrivateSettlementPayment,
 } from "../midnight/contract-client";
 import type { PayrollFrequency } from "../payroll/types";
 
@@ -21,11 +21,19 @@ export class BlackpaySdk {
     return this.gateway.addEmployee(input);
   }
 
+  updateEmployee(input: { employeeIdHex: string; witness: PrivateEmployeeWitness }) {
+    return this.gateway.updateEmployee(input);
+  }
+
+  removeEmployee(employeeIdHex: string) {
+    return this.gateway.removeEmployee(employeeIdHex);
+  }
+
   createPayRun(input: {
     payRunIdHex: string;
     period: number;
-    employeeCount: number;
-    witness: PrivatePayRunWitness;
+    tokenColorHex: string;
+    payments: PrivateSettlementPayment[];
   }) {
     return this.gateway.createPayRun(input);
   }
@@ -34,8 +42,12 @@ export class BlackpaySdk {
     return this.gateway.approvePayRun(payRunIdHex);
   }
 
-  finalizePayRun(input: { payRunIdHex: string; transactionCommitmentHex: string }) {
-    return this.gateway.finalizePayRun(input);
+  fundPayRunPayment(input: { payRunIdHex: string; employeeIdHex: string }) {
+    return this.gateway.fundPayRunPayment(input);
+  }
+
+  claimPayRunPayment(input: { payRunIdHex: string; employeeIdHex: string }) {
+    return this.gateway.claimPayRunPayment(input);
   }
 
   proveIncomeAtLeast(input: {
