@@ -1,15 +1,15 @@
-import { BlackpayApp } from "@/components/BlackpayApp";
+import { BlackpayAppClientOnly } from "@/components/BlackpayAppClientOnly";
 import { PreviewRuntimeClientOnly } from "@/components/PreviewRuntimeClientOnly";
-import { Milestones712 } from "@/components/Milestones712";
+import { Milestones712ClientOnly } from "@/components/Milestones712ClientOnly";
 
 export default function HomePage() {
   return (
     <>
-      <BlackpayApp />
+      <BlackpayAppClientOnly />
       <section className="shell liveShell">
         <PreviewRuntimeClientOnly />
       </section>
-      <Milestones712 />
+      <Milestones712ClientOnly />
     </>
   );
 }
