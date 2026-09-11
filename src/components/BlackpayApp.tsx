@@ -8,7 +8,11 @@ import {
   type AvailableWallet,
   type ConnectedWallet,
 } from "@/lib/midnight/wallet";
-import { getPayrollContractGateway } from "@/lib/midnight/contract-client";
+import {
+  getPayrollContractGateway,
+  isPayrollContractGatewayReady,
+  subscribePayrollContractGateway,
+} from "@/lib/midnight/contract-client";
 import { submitShieldedPayroll } from "@/lib/midnight/payments";
 import {
   paymentsRoot,
@@ -63,6 +67,7 @@ export function BlackpayApp() {
   const config = useMemo(() => getMidnightPublicConfig(), []);
   const [wallets, setWallets] = useState<AvailableWallet[]>([]);
   const [connected, setConnected] = useState<ConnectedWallet | null>(null);
+  const [runtimeReady, setRuntimeReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string>("");
   const [failure, setFailure] = useState<string>("");
@@ -85,6 +90,8 @@ export function BlackpayApp() {
 
   useEffect(() => {
     setWallets(listMidnightWallets());
+    setRuntimeReady(isPayrollContractGatewayReady());
+    return subscribePayrollContractGateway(setRuntimeReady);
   }, []);
 
   async function run(action: () => Promise<void>) {
@@ -104,7 +111,7 @@ export function BlackpayApp() {
     await run(async () => {
       const connection = await connectMidnightWallet(walletId);
       setConnected(connection);
-      setNotice(`Connected to ${connection.name} on ${config.network}.`);
+      setNotice(`Connected to ${connection.name} on ${config.network}. Deploy or join the Blackpay contract runtime before using payroll actions.`);
     });
   }
 
@@ -197,7 +204,7 @@ export function BlackpayApp() {
   async function executeCurrentPayRun() {
     await run(async () => {
       if (!connected) throw new Error("Connect a Midnight wallet first");
-      if (!config.payrollTokenType) throw new Error("NEXT_PUBLIC_PAYROLL_TOKEN_TYPE is not configured");
+      if (!config.payrollTokenType) throw new Error("A real Preview payroll token type is not configured yet");
       const payRunIdHex = await privateId("blackpay:payrun-id:v1", payRunId);
       const prepared = preparedRuns[payRunIdHex];
       if (!prepared) throw new Error("This pay run is not available in the current private session");
@@ -247,7 +254,8 @@ export function BlackpayApp() {
     });
   }
 
-  const deployConfigured = Boolean(config.contractAddress && config.indexerUrl && config.nodeUrl);
+  const liveReady = Boolean(connected && runtimeReady);
+  const contractStatus = runtimeReady ? "LIVE / JOINED" : connected ? "DEPLOY REQUIRED" : "WAITING";
 
   return (
     <main className="shell">
@@ -293,7 +301,7 @@ export function BlackpayApp() {
         </article>
         <article className="statusCard">
           <span>CONTRACT</span>
-          <strong>{deployConfigured ? "CONFIGURED" : "COMPILE / DEPLOY"}</strong>
+          <strong>{contractStatus}</strong>
         </article>
         <article className="statusCard">
           <span>PRIVACY MODE</span>
@@ -305,6 +313,12 @@ export function BlackpayApp() {
         <section className={failure ? "message error" : "message success"}>{failure || notice}</section>
       )}
 
+      {connected && !runtimeReady && (
+        <section className="message error">
+          WALLET ONLY — NO CONTRACT RUNTIME IS ACTIVE. Payroll buttons are intentionally locked. Go to the Midnight Preview runtime below, enter a private-state password, then deploy a new Blackpay contract or join an existing verified contract. <a href="#midnight-runtime">OPEN LIVE RUNTIME ↓</a>
+        </section>
+      )}
+
       <section className="workspaceGrid">
         <form className="panel" onSubmit={createWorkspace}>
           <div className="panelNumber">01</div>
@@ -313,7 +327,7 @@ export function BlackpayApp() {
           <label>Company name<input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Company" /></label>
           <label>Currency / token label<input value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} placeholder="USDM" /></label>
           <label>Frequency<select value={frequency} onChange={(e) => setFrequency(e.target.value as PayrollFrequency)}><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option></select></label>
-          <button className="primary full" disabled={busy}>CREATE WORKSPACE</button>
+          <button className="primary full" disabled={busy || !liveReady}>CREATE WORKSPACE</button>
         </form>
 
         <form className="panel" onSubmit={addEmployee}>
@@ -323,7 +337,7 @@ export function BlackpayApp() {
           <label>Employee reference<input value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="Internal employee ID" /></label>
           <label>Salary in minor units<input inputMode="numeric" value={salaryMinor} onChange={(e) => setSalaryMinor(e.target.value)} placeholder="325000" /></label>
           <label>Shielded recipient<input value={shieldedRecipient} onChange={(e) => setShieldedRecipient(e.target.value)} placeholder="Midnight shielded address" /></label>
-          <button className="primary full" disabled={busy}>COMMIT EMPLOYEE</button>
+          <button className="primary full" disabled={busy || !liveReady}>COMMIT EMPLOYEE</button>
         </form>
 
         <form className="panel wide" onSubmit={createPayRun}>
@@ -336,9 +350,9 @@ export function BlackpayApp() {
           </div>
           <label>Payments<textarea value={paymentRows} onChange={(e) => setPaymentRows(e.target.value)} rows={6} placeholder="employee-001 | 325000 | shielded-address" /></label>
           <div className="buttonRow">
-            <button className="primary" disabled={busy}>CREATE PAY RUN</button>
-            <button className="secondary" type="button" disabled={busy} onClick={approveCurrentPayRun}>APPROVE</button>
-            <button className="secondary" type="button" disabled={busy} onClick={executeCurrentPayRun}>EXECUTE SHIELDED PAYROLL</button>
+            <button className="primary" disabled={busy || !liveReady}>CREATE PAY RUN</button>
+            <button className="secondary" type="button" disabled={busy || !liveReady} onClick={approveCurrentPayRun}>APPROVE</button>
+            <button className="secondary" type="button" disabled={busy || !liveReady || !config.payrollTokenType} onClick={executeCurrentPayRun}>EXECUTE SHIELDED PAYROLL</button>
           </div>
         </form>
 
@@ -348,7 +362,7 @@ export function BlackpayApp() {
           <p>Prove salary ≥ threshold against the registered private record. The exact salary is not disclosed.</p>
           <label>Employee reference<input value={proofEmployeeId} onChange={(e) => setProofEmployeeId(e.target.value)} placeholder="Internal employee ID" /></label>
           <label>Threshold in minor units<input inputMode="numeric" value={proofThreshold} onChange={(e) => setProofThreshold(e.target.value)} placeholder="250000" /></label>
-          <button className="primary full" disabled={busy}>GENERATE PROOF</button>
+          <button className="primary full" disabled={busy || !liveReady}>GENERATE PROOF</button>
         </form>
 
         <article className="panel protocolPanel">
