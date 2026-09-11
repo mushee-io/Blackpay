@@ -1,66 +1,64 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 
-const required = [
-  "NEXT_PUBLIC_MIDNIGHT_INDEXER_URL",
-  "NEXT_PUBLIC_MIDNIGHT_NODE_URL",
-  "NEXT_PUBLIC_BLACKPAY_CONTRACT_ADDRESS",
+const contractAddress = process.env.NEXT_PUBLIC_BLACKPAY_CONTRACT_ADDRESS?.trim() ?? "";
+if (!contractAddress) {
+  throw new Error("LIVE verification blocked. Missing canonical NEXT_PUBLIC_BLACKPAY_CONTRACT_ADDRESS for the deployed protocol-v2 contract.");
+}
+
+if (!/^[0-9a-fA-F]{64}$/.test(contractAddress)) {
+  throw new Error("LIVE verification blocked. NEXT_PUBLIC_BLACKPAY_CONTRACT_ADDRESS is not a 32-byte Midnight contract address.");
+}
+
+const requiredFiles = [
+  "contract/build/contract/index.js",
+  "contract/build/contract/index.d.ts",
+  "contract/build/compiler/contract-info.json",
 ];
-
-const missing = required.filter((name) => !process.env[name]?.trim());
-if (missing.length > 0) {
-  throw new Error(`LIVE verification blocked. Missing: ${missing.join(", ")}`);
-}
-
-if (!existsSync("contract/build")) {
-  throw new Error("LIVE verification blocked. contract/build is missing; compile Compact 0.31.1 first.");
-}
-
-function httpVariant(value) {
-  const url = new URL(value);
-  if (url.protocol === "ws:") url.protocol = "http:";
-  if (url.protocol === "wss:") url.protocol = "https:";
-  return url.toString();
-}
-
-async function reachable(label, value) {
-  const target = httpVariant(value);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  try {
-    const response = await fetch(target, {
-      method: "GET",
-      signal: controller.signal,
-      redirect: "follow",
-    });
-    return { label, ok: true, status: response.status };
-  } catch (error) {
-    return {
-      label,
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  } finally {
-    clearTimeout(timeout);
+for (const path of requiredFiles) {
+  if (!existsSync(path) || !statSync(path).isFile() || statSync(path).size === 0) {
+    throw new Error(`LIVE verification blocked. Missing compiled protocol-v2 artifact: ${path}`);
   }
 }
 
-const proofServer = process.env.NEXT_PUBLIC_MIDNIGHT_PROOF_SERVER_URL ?? "http://127.0.0.1:6300";
-const checks = await Promise.all([
-  reachable("proof-server", proofServer),
-  reachable("indexer", process.env.NEXT_PUBLIC_MIDNIGHT_INDEXER_URL),
-  reachable("node", process.env.NEXT_PUBLIC_MIDNIGHT_NODE_URL),
-]);
+const expectedCircuits = [
+  "createWorkspace",
+  "addEmployee",
+  "updateEmployee",
+  "removeEmployee",
+  "createPayRun",
+  "registerPayRunPayment",
+  "approvePayRun",
+  "fundPayRunPayment",
+  "claimPayRunPayment",
+  "proveIncomeAtLeast",
+  "createIncomeDisclosure",
+  "createEmploymentDisclosure",
+  "revokeDisclosure",
+];
 
-for (const check of checks) {
-  process.stdout.write(`${check.label}: ${check.ok ? "REACHABLE" : "FAIL"}${check.status ? ` (${check.status})` : ""}\n`);
+for (const circuit of expectedCircuits) {
+  for (const path of [
+    `contract/build/keys/${circuit}.prover`,
+    `contract/build/keys/${circuit}.verifier`,
+    `contract/build/zkir/${circuit}.bzkir`,
+    `contract/build/zkir/${circuit}.zkir`,
+  ]) {
+    if (!existsSync(path) || statSync(path).size === 0) {
+      throw new Error(`LIVE verification blocked. Missing protocol-v2 proving asset: ${path}`);
+    }
+  }
 }
 
-const failed = checks.filter((check) => !check.ok);
-if (failed.length > 0) {
-  throw new Error(`LIVE verification failed: ${failed.map((check) => check.label).join(", ")}`);
+const keyCount = readdirSync("contract/build/keys").length;
+const zkirCount = readdirSync("contract/build/zkir").length;
+if (keyCount !== 26 || zkirCount !== 26) {
+  throw new Error(`LIVE verification blocked. Expected 26 key files and 26 ZKIR files; found ${keyCount} and ${zkirCount}.`);
 }
 
-process.stdout.write("contract artifacts: PRESENT\n");
-process.stdout.write("contract address: CONFIGURED\n");
-process.stdout.write("LIVE infrastructure preflight: PASS\n");
-process.stdout.write("Wallet signing, deployment provenance, payroll settlement, and proof verification still require an interactive Preview run.\n");
+process.stdout.write("Blackpay protocol version target: 2\n");
+process.stdout.write("Compact 0.31.x protocol-v2 artifacts: PRESENT\n");
+process.stdout.write("Protocol-v2 proving assets: 13 CIRCUITS / PASS\n");
+process.stdout.write(`Canonical v2 contract address: ${contractAddress}\n`);
+process.stdout.write("Midnight infrastructure source: LACE WALLET CONFIGURATION\n");
+process.stdout.write("CLI release preflight: PASS\n");
+process.stdout.write("Interactive Lace verification is still required for wallet signing, protocolVersion == 2 discovery, claim funding, and the one-time employee salary claim.\n");
