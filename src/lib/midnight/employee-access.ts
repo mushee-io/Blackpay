@@ -67,11 +67,17 @@ function base64ToBytes(value: string): Uint8Array {
   }
 }
 
+function ownedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
   const webCrypto = assertBrowserCrypto();
   const material = await webCrypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
   return webCrypto.subtle.deriveKey(
-    { name: "PBKDF2", salt, iterations: 250000, hash: "SHA-256" },
+    { name: "PBKDF2", salt: ownedArrayBuffer(salt), iterations: 250000, hash: "SHA-256" },
     material,
     { name: "AES-GCM", length: 256 },
     false,
@@ -95,7 +101,11 @@ export async function encryptEmployeeAccessPayload(params: {
   const key = await deriveKey(params.password, salt);
   const plaintext = encoder.encode(JSON.stringify(params.payload));
   if (plaintext.byteLength > 1_000_000) throw new Error("Employee access payload is unexpectedly large");
-  const encrypted = await webCrypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
+  const encrypted = await webCrypto.subtle.encrypt(
+    { name: "AES-GCM", iv: ownedArrayBuffer(iv) },
+    key,
+    ownedArrayBuffer(plaintext),
+  );
 
   return {
     format: "blackpay-employee-access-envelope-v1",
@@ -162,7 +172,11 @@ export async function decryptEmployeeAccessPayload(
   const key = await deriveKey(password, salt);
   let plaintext: ArrayBuffer;
   try {
-    plaintext = await assertBrowserCrypto().subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+    plaintext = await assertBrowserCrypto().subtle.decrypt(
+      { name: "AES-GCM", iv: ownedArrayBuffer(iv) },
+      key,
+      ownedArrayBuffer(ciphertext),
+    );
   } catch {
     throw new Error("Employee access package could not be decrypted. Check the access password and file integrity.");
   }
