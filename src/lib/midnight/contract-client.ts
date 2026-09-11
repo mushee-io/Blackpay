@@ -77,6 +77,12 @@ export interface PayrollContractGateway {
 }
 
 let activeGateway: PayrollContractGateway | undefined;
+const gatewayListeners = new Set<(ready: boolean) => void>();
+
+function emitGatewayReadiness(): void {
+  const ready = Boolean(activeGateway);
+  for (const listener of gatewayListeners) listener(ready);
+}
 
 /**
  * Register only a real adapter backed by generated Compact bindings and
@@ -84,16 +90,28 @@ let activeGateway: PayrollContractGateway | undefined;
  */
 export function registerPayrollContractGateway(gateway: PayrollContractGateway): void {
   activeGateway = gateway;
+  emitGatewayReadiness();
 }
 
 export function clearPayrollContractGateway(): void {
   activeGateway = undefined;
+  emitGatewayReadiness();
+}
+
+export function isPayrollContractGatewayReady(): boolean {
+  return Boolean(activeGateway);
+}
+
+export function subscribePayrollContractGateway(listener: (ready: boolean) => void): () => void {
+  gatewayListeners.add(listener);
+  listener(Boolean(activeGateway));
+  return () => gatewayListeners.delete(listener);
 }
 
 export function getPayrollContractGateway(): PayrollContractGateway {
   if (!activeGateway) {
     throw new Error(
-      "Blackpay Compact bindings are not active. Compile contract/payroll.compact and register the real Midnight adapter before sending payroll state transactions.",
+      "Blackpay live runtime is not active. Connect Lace, then deploy a new Blackpay contract or join a verified contract before sending payroll transactions.",
     );
   }
   return activeGateway;
