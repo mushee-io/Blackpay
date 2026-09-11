@@ -18,6 +18,12 @@ export enum PayRunStatus {
     Executed,
 }
 
+export enum PaymentClaimStatus {
+    Registered,
+    Funded,
+    Settled,
+}
+
 export enum DisclosureKind {
     EmploymentActive,
     IncomeAtLeast,
@@ -29,6 +35,7 @@ export new type AdminPublicKey = Bytes<32>;
 struct PrivateEmployeeRecord {
     salaryMinor: Uint<64>;
     payoutCommitment: Bytes<32>;
+    payoutCoinPublicKey: Bytes<32>;
     salt: Bytes<32>;
 }
 
@@ -48,8 +55,20 @@ export struct PayRunEntry {
     commitment: Bytes<32>;
     period: Uint<32>;
     employeeCount: Uint<32>;
+    tokenColor: Bytes<32>;
+    registeredPaymentCount: Uint<32>;
+    fundedPaymentCount: Uint<32>;
+    settledPaymentCount: Uint<32>;
+    registeredPaymentsRoot: Bytes<32>;
+    settlementRoot: Bytes<32>;
     status: PayRunStatus;
-    transactionCommitment: Bytes<32>;
+}
+
+export struct PaymentClaimEntry {
+    payRunId: Bytes<32>;
+    employeeCommitment: Bytes<32>;
+    paymentCommitment: Bytes<32>;
+    status: PaymentClaimStatus;
 }
 
 export struct IncomeProofEntry {
@@ -70,7 +89,9 @@ export struct DisclosureEntry {
 witness getAdminSecret(): AdminSecret;
 witness getEmployeeRecord(): PrivateEmployeeRecord;
 witness getPayRunRecord(): PrivatePayRunRecord;
+witness getFundedCoin(): QualifiedShieldedCoinInfo;
 
+export ledger protocolVersion: Uint<32>;
 export ledger admin: AdminPublicKey;
 export ledger workspaceCreated: Boolean;
 export ledger workspaceId: Bytes<32>;
@@ -79,10 +100,12 @@ export ledger payrollFrequency: PayrollFrequency;
 export ledger activeEmployeeCount: Uint<32>;
 export ledger employees: Map<Bytes<32>, EmployeeEntry>;
 export ledger payRuns: Map<Bytes<32>, PayRunEntry>;
+export ledger paymentClaims: Map<Bytes<32>, PaymentClaimEntry>;
 export ledger incomeProofs: Map<Bytes<32>, IncomeProofEntry>;
 export ledger disclosures: Map<Bytes<32>, DisclosureEntry>;
 
 constructor() {
+    protocolVersion = 2;
     admin = disclose(deriveAdminPublicKey(getAdminSecret()));
     workspaceCreated = false;
     workspaceId = default<Bytes<32>>;
@@ -106,15 +129,83 @@ export pure circuit employeeCommitment(
     employeeId: Bytes<32>,
     salaryMinor: Uint<64>,
     payoutCommitment: Bytes<32>,
+    payoutCoinPublicKey: Bytes<32>,
     salt: Bytes<32>
 ): Bytes<32> {
     const salaryHash = persistentHash<Uint<64>>(salaryMinor);
-    return persistentHash<Vector<5, Bytes<32>>>([
-        pad(32, "blackpay:employee:v1"),
+    return persistentHash<Vector<6, Bytes<32>>>([
+        pad(32, "blackpay:employee:v2"),
         employeeId,
         salaryHash,
         payoutCommitment,
+        payoutCoinPublicKey,
         salt
+    ]);
+}
+
+export pure circuit paymentClaimId(payRunId: Bytes<32>, employeeId: Bytes<32>): Bytes<32> {
+    return persistentHash<Vector<3, Bytes<32>>>([
+        pad(32, "blackpay:claim:id:v2"),
+        payRunId,
+        employeeId
+    ]);
+}
+
+export pure circuit paymentClaimCommitment(
+    payRunId: Bytes<32>,
+    employeeId: Bytes<32>,
+    amountMinor: Uint<64>,
+    payoutCoinPublicKey: Bytes<32>,
+    tokenColor: Bytes<32>,
+    paymentSalt: Bytes<32>
+): Bytes<32> {
+    const amountHash = persistentHash<Uint<64>>(amountMinor);
+    return persistentHash<Vector<7, Bytes<32>>>([
+        pad(32, "blackpay:payment:v2"),
+        payRunId,
+        employeeId,
+        amountHash,
+        payoutCoinPublicKey,
+        tokenColor,
+        paymentSalt
+    ]);
+}
+
+export pure circuit paymentRootSeed(payRunId: Bytes<32>): Bytes<32> {
+    return persistentHash<Vector<2, Bytes<32>>>([
+        pad(32, "blackpay:payments:seed:v2"),
+        payRunId
+    ]);
+}
+
+export pure circuit appendPaymentRoot(
+    currentRoot: Bytes<32>,
+    claimId: Bytes<32>,
+    paymentCommitment: Bytes<32>
+): Bytes<32> {
+    return persistentHash<Vector<4, Bytes<32>>>([
+        pad(32, "blackpay:payments:append:v2"),
+        currentRoot,
+        claimId,
+        paymentCommitment
+    ]);
+}
+
+export pure circuit settlementRootSeed(payRunId: Bytes<32>): Bytes<32> {
+    return persistentHash<Vector<2, Bytes<32>>>([
+        pad(32, "blackpay:settlement:seed:v2"),
+        payRunId
+    ]);
+}
+
+export pure circuit appendSettlementRoot(
+    currentRoot: Bytes<32>,
+    claimId: Bytes<32>
+): Bytes<32> {
+    return persistentHash<Vector<3, Bytes<32>>>([
+        pad(32, "blackpay:settlement:append:v2"),
+        currentRoot,
+        claimId
     ]);
 }
 
@@ -122,14 +213,16 @@ export pure circuit payRunCommitment(
     payRunId: Bytes<32>,
     totalPayrollMinor: Uint<128>,
     paymentsRoot: Bytes<32>,
+    tokenColor: Bytes<32>,
     salt: Bytes<32>
 ): Bytes<32> {
     const totalHash = persistentHash<Uint<128>>(totalPayrollMinor);
-    return persistentHash<Vector<5, Bytes<32>>>([
-        pad(32, "blackpay:payrun:v1"),
+    return persistentHash<Vector<6, Bytes<32>>>([
+        pad(32, "blackpay:payrun:v2"),
         payRunId,
         totalHash,
         paymentsRoot,
+        tokenColor,
         salt
     ]);
 }
@@ -145,6 +238,7 @@ circuit verifiedPrivateEmployee(employeeId: Bytes<32>): [EmployeeEntry, PrivateE
         employeeId,
         record.salaryMinor,
         record.payoutCommitment,
+        record.payoutCoinPublicKey,
         record.salt
     );
     assert(currentCommitment == entry.commitment, "Private employee record does not match the registered commitment");
@@ -173,7 +267,14 @@ export circuit addEmployee(employeeId: Bytes<32>): [] {
     const record = getEmployeeRecord();
     assert(record.salaryMinor > 0, "Salary must be greater than zero");
     assert(record.payoutCommitment != default<Bytes<32>>, "Payout commitment must not be empty");
-    const commitment = employeeCommitment(employeeId, record.salaryMinor, record.payoutCommitment, record.salt);
+    assert(record.payoutCoinPublicKey != default<Bytes<32>>, "Payout coin public key must not be empty");
+    const commitment = employeeCommitment(
+        employeeId,
+        record.salaryMinor,
+        record.payoutCommitment,
+        record.payoutCoinPublicKey,
+        record.salt
+    );
 
     employees.insert(id, disclose(EmployeeEntry {
         commitment: commitment,
@@ -193,7 +294,14 @@ export circuit updateEmployee(employeeId: Bytes<32>): [] {
     const record = getEmployeeRecord();
     assert(record.salaryMinor > 0, "Salary must be greater than zero");
     assert(record.payoutCommitment != default<Bytes<32>>, "Payout commitment must not be empty");
-    const commitment = employeeCommitment(employeeId, record.salaryMinor, record.payoutCommitment, record.salt);
+    assert(record.payoutCoinPublicKey != default<Bytes<32>>, "Payout coin public key must not be empty");
+    const commitment = employeeCommitment(
+        employeeId,
+        record.salaryMinor,
+        record.payoutCommitment,
+        record.payoutCoinPublicKey,
+        record.salt
+    );
 
     employees.insert(id, disclose(EmployeeEntry {
         commitment: commitment,
@@ -221,27 +329,92 @@ export circuit removeEmployee(employeeId: Bytes<32>): [] {
 export circuit createPayRun(
     payRunId: Bytes<32>,
     period: Uint<32>,
-    employeeCount: Uint<32>
+    employeeCount: Uint<32>,
+    tokenColor: Bytes<32>
 ): [] {
     assertAdmin();
     assert(workspaceCreated, "Create the payroll workspace first");
     assert(period > 0, "Pay period must be greater than zero");
     assert(employeeCount > 0, "Pay run requires at least one employee");
     assert(employeeCount <= activeEmployeeCount, "Pay run employee count exceeds active employees");
+    assert(tokenColor != default<Bytes<32>>, "Payroll token color must not be empty");
     const id = disclose(payRunId);
     assert(!payRuns.member(id), "Pay run already exists");
 
     const record = getPayRunRecord();
     assert(record.totalPayrollMinor > 0, "Payroll total must be greater than zero");
     assert(record.paymentsRoot != default<Bytes<32>>, "Payments root must not be empty");
-    const commitment = payRunCommitment(payRunId, record.totalPayrollMinor, record.paymentsRoot, record.salt);
+    const commitment = payRunCommitment(
+        payRunId,
+        record.totalPayrollMinor,
+        record.paymentsRoot,
+        tokenColor,
+        record.salt
+    );
 
     payRuns.insert(id, disclose(PayRunEntry {
         commitment: commitment,
         period: period,
         employeeCount: employeeCount,
+        tokenColor: tokenColor,
+        registeredPaymentCount: 0,
+        fundedPaymentCount: 0,
+        settledPaymentCount: 0,
+        registeredPaymentsRoot: paymentRootSeed(payRunId),
+        settlementRoot: settlementRootSeed(payRunId),
         status: PayRunStatus.Draft,
-        transactionCommitment: default<Bytes<32>>,
+    }));
+}
+
+export circuit registerPayRunPayment(
+    payRunId: Bytes<32>,
+    employeeId: Bytes<32>,
+    amountMinor: Uint<64>,
+    payoutCoinPublicKey: Bytes<32>,
+    paymentSalt: Bytes<32>
+): [] {
+    assertAdmin();
+    const runId = disclose(payRunId);
+    assert(payRuns.member(runId), "Pay run does not exist");
+    const run = payRuns.lookup(runId);
+    assert(run.status == PayRunStatus.Draft, "Payments can only be registered on draft pay runs");
+
+    const [employeeEntry, employeeRecord] = verifiedPrivateEmployee(employeeId);
+    assert(amountMinor == employeeRecord.salaryMinor, "Payment amount does not match the registered private salary");
+    assert(payoutCoinPublicKey == employeeRecord.payoutCoinPublicKey, "Payment recipient does not match the registered payout key");
+
+    const claimId = paymentClaimId(payRunId, employeeId);
+    const claimKey = disclose(claimId);
+    const paymentCommitment = paymentClaimCommitment(
+        payRunId,
+        employeeId,
+        amountMinor,
+        payoutCoinPublicKey,
+        run.tokenColor,
+        paymentSalt
+    );
+
+    assert(!paymentClaims.member(claimKey), "Payment claim already registered");
+    assert(run.registeredPaymentCount < run.employeeCount, "Pay run already has all expected payments");
+
+    paymentClaims.insert(claimKey, disclose(PaymentClaimEntry {
+        payRunId: payRunId,
+        employeeCommitment: employeeEntry.commitment,
+        paymentCommitment: paymentCommitment,
+        status: PaymentClaimStatus.Registered,
+    }));
+
+    payRuns.insert(runId, disclose(PayRunEntry {
+        commitment: run.commitment,
+        period: run.period,
+        employeeCount: run.employeeCount,
+        tokenColor: run.tokenColor,
+        registeredPaymentCount: (run.registeredPaymentCount + 1) as Uint<32>,
+        fundedPaymentCount: run.fundedPaymentCount,
+        settledPaymentCount: run.settledPaymentCount,
+        registeredPaymentsRoot: appendPaymentRoot(run.registeredPaymentsRoot, claimId, paymentCommitment),
+        settlementRoot: run.settlementRoot,
+        status: run.status,
     }));
 }
 
@@ -251,31 +424,152 @@ export circuit approvePayRun(payRunId: Bytes<32>): [] {
     assert(payRuns.member(id), "Pay run does not exist");
     const run = payRuns.lookup(id);
     assert(run.status == PayRunStatus.Draft, "Only draft pay runs may be approved");
+    assert(run.registeredPaymentCount == run.employeeCount, "Every pay-run employee must have a registered payment claim");
+
+    const record = getPayRunRecord();
+    const expectedCommitment = payRunCommitment(
+        payRunId,
+        record.totalPayrollMinor,
+        record.paymentsRoot,
+        run.tokenColor,
+        record.salt
+    );
+    assert(expectedCommitment == run.commitment, "Private pay-run record does not match the registered commitment");
+    assert(record.paymentsRoot == run.registeredPaymentsRoot, "Registered payment set does not match the committed payment root");
 
     payRuns.insert(id, disclose(PayRunEntry {
         commitment: run.commitment,
         period: run.period,
         employeeCount: run.employeeCount,
+        tokenColor: run.tokenColor,
+        registeredPaymentCount: run.registeredPaymentCount,
+        fundedPaymentCount: run.fundedPaymentCount,
+        settledPaymentCount: run.settledPaymentCount,
+        registeredPaymentsRoot: run.registeredPaymentsRoot,
+        settlementRoot: run.settlementRoot,
         status: PayRunStatus.Approved,
-        transactionCommitment: run.transactionCommitment,
     }));
 }
 
-export circuit finalizePayRun(payRunId: Bytes<32>, transactionCommitment: Bytes<32>): [] {
+export circuit fundPayRunPayment(
+    payRunId: Bytes<32>,
+    employeeId: Bytes<32>,
+    amountMinor: Uint<64>,
+    payoutCoinPublicKey: Bytes<32>,
+    paymentSalt: Bytes<32>,
+    fundingCoin: ShieldedCoinInfo
+): [] {
     assertAdmin();
-    const id = disclose(payRunId);
-    assert(payRuns.member(id), "Pay run does not exist");
-    const run = payRuns.lookup(id);
-    assert(run.status == PayRunStatus.Approved, "Pay run must be approved before execution");
-    assert(transactionCommitment != default<Bytes<32>>, "Settlement commitment must not be empty");
+    const runId = disclose(payRunId);
+    assert(payRuns.member(runId), "Pay run does not exist");
+    const run = payRuns.lookup(runId);
+    assert(run.status == PayRunStatus.Approved, "Pay run must be approved before funding");
 
-    payRuns.insert(id, disclose(PayRunEntry {
+    const claimId = paymentClaimId(payRunId, employeeId);
+    const claimKey = disclose(claimId);
+    assert(paymentClaims.member(claimKey), "Payment claim is not registered");
+    const claim = paymentClaims.lookup(claimKey);
+    assert(claim.status == PaymentClaimStatus.Registered, "Payment claim has already been funded or settled");
+
+    const expectedPayment = paymentClaimCommitment(
+        payRunId,
+        employeeId,
+        amountMinor,
+        payoutCoinPublicKey,
+        run.tokenColor,
+        paymentSalt
+    );
+    assert(expectedPayment == claim.paymentCommitment, "Private payment data does not match the registered payment commitment");
+    assert(fundingCoin.color == run.tokenColor, "Funding coin token does not match the pay run token");
+    assert(fundingCoin.value == amountMinor as Uint<128>, "Funding coin amount does not match the committed payment amount");
+
+    receiveShielded(disclose(fundingCoin));
+
+    paymentClaims.insert(claimKey, disclose(PaymentClaimEntry {
+        payRunId: claim.payRunId,
+        employeeCommitment: claim.employeeCommitment,
+        paymentCommitment: claim.paymentCommitment,
+        status: PaymentClaimStatus.Funded,
+    }));
+
+    payRuns.insert(runId, disclose(PayRunEntry {
         commitment: run.commitment,
         period: run.period,
         employeeCount: run.employeeCount,
-        status: PayRunStatus.Executed,
-        transactionCommitment: transactionCommitment,
+        tokenColor: run.tokenColor,
+        registeredPaymentCount: run.registeredPaymentCount,
+        fundedPaymentCount: (run.fundedPaymentCount + 1) as Uint<32>,
+        settledPaymentCount: run.settledPaymentCount,
+        registeredPaymentsRoot: run.registeredPaymentsRoot,
+        settlementRoot: run.settlementRoot,
+        status: run.status,
     }));
+}
+
+export circuit claimPayRunPayment(
+    payRunId: Bytes<32>,
+    employeeId: Bytes<32>,
+    amountMinor: Uint<64>,
+    payoutCoinPublicKey: Bytes<32>,
+    paymentSalt: Bytes<32>
+): ShieldedCoinInfo {
+    const runId = disclose(payRunId);
+    assert(payRuns.member(runId), "Pay run does not exist");
+    const run = payRuns.lookup(runId);
+    assert(run.status == PayRunStatus.Approved, "Pay run is not open for settlement claims");
+
+    const claimId = paymentClaimId(payRunId, employeeId);
+    const claimKey = disclose(claimId);
+    assert(paymentClaims.member(claimKey), "Payment claim is not registered");
+    const claim = paymentClaims.lookup(claimKey);
+    assert(claim.status == PaymentClaimStatus.Funded, "Payment claim is not funded or was already settled");
+
+    const expectedPayment = paymentClaimCommitment(
+        payRunId,
+        employeeId,
+        amountMinor,
+        payoutCoinPublicKey,
+        run.tokenColor,
+        paymentSalt
+    );
+    assert(expectedPayment == claim.paymentCommitment, "Private payment data does not match the registered payment commitment");
+
+    const fundedCoin = getFundedCoin();
+    assert(fundedCoin.color == run.tokenColor, "Funded coin token does not match the pay run token");
+    assert(fundedCoin.value == amountMinor as Uint<128>, "Funded coin amount does not match the committed payment amount");
+
+    const sent = sendShielded(
+        disclose(fundedCoin),
+        left<ZswapCoinPublicKey, ContractAddress>(ZswapCoinPublicKey { bytes: disclose(payoutCoinPublicKey) }),
+        disclose(amountMinor) as Uint<128>
+    );
+
+    paymentClaims.insert(claimKey, disclose(PaymentClaimEntry {
+        payRunId: claim.payRunId,
+        employeeCommitment: claim.employeeCommitment,
+        paymentCommitment: claim.paymentCommitment,
+        status: PaymentClaimStatus.Settled,
+    }));
+
+    const nextSettledCount = (run.settledPaymentCount + 1) as Uint<32>;
+    const nextStatus = nextSettledCount == run.employeeCount
+        ? PayRunStatus.Executed
+        : PayRunStatus.Approved;
+
+    payRuns.insert(runId, disclose(PayRunEntry {
+        commitment: run.commitment,
+        period: run.period,
+        employeeCount: run.employeeCount,
+        tokenColor: run.tokenColor,
+        registeredPaymentCount: run.registeredPaymentCount,
+        fundedPaymentCount: run.fundedPaymentCount,
+        settledPaymentCount: nextSettledCount,
+        registeredPaymentsRoot: run.registeredPaymentsRoot,
+        settlementRoot: appendSettlementRoot(run.settlementRoot, claimId),
+        status: nextStatus,
+    }));
+
+    return sent.sent;
 }
 
 export circuit proveIncomeAtLeast(
