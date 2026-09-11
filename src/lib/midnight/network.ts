@@ -3,10 +3,6 @@ export type MidnightNetwork = (typeof MIDNIGHT_NETWORKS)[number];
 
 export type MidnightPublicConfig = {
   network: MidnightNetwork;
-  proofServerUrl: string;
-  indexerUrl: string;
-  indexerWsUrl: string;
-  nodeUrl: string;
   contractAddress: string;
   payrollTokenType: string;
 };
@@ -22,24 +18,19 @@ function requireNetwork(value: string | undefined): MidnightNetwork {
 export function getMidnightPublicConfig(): MidnightPublicConfig {
   return {
     network: requireNetwork(process.env.NEXT_PUBLIC_MIDNIGHT_NETWORK),
-    proofServerUrl: process.env.NEXT_PUBLIC_MIDNIGHT_PROOF_SERVER_URL ?? "http://127.0.0.1:6300",
-    indexerUrl: process.env.NEXT_PUBLIC_MIDNIGHT_INDEXER_URL ?? "",
-    indexerWsUrl: process.env.NEXT_PUBLIC_MIDNIGHT_INDEXER_WS_URL ?? "",
-    nodeUrl: process.env.NEXT_PUBLIC_MIDNIGHT_NODE_URL ?? "",
     contractAddress: process.env.NEXT_PUBLIC_BLACKPAY_CONTRACT_ADDRESS ?? "",
     payrollTokenType: process.env.NEXT_PUBLIC_PAYROLL_TOKEN_TYPE ?? "",
   };
 }
 
+/**
+ * This validates only public app defaults. Indexer, websocket, substrate-node,
+ * and proving configuration are intentionally obtained from the connected Lace
+ * wallet at runtime and must not be duplicated in NEXT_PUBLIC_* variables.
+ */
 export function assertDeploymentConfig(config = getMidnightPublicConfig()): MidnightPublicConfig {
-  const missing = [
-    ["NEXT_PUBLIC_MIDNIGHT_INDEXER_URL", config.indexerUrl],
-    ["NEXT_PUBLIC_MIDNIGHT_NODE_URL", config.nodeUrl],
-    ["NEXT_PUBLIC_BLACKPAY_CONTRACT_ADDRESS", config.contractAddress],
-  ].filter(([, value]) => !value);
-
-  if (missing.length > 0) {
-    throw new Error(`Blackpay deployment is not configured: ${missing.map(([name]) => name).join(", ")}`);
+  if (!config.contractAddress.trim()) {
+    throw new Error("Blackpay deployment is not configured: NEXT_PUBLIC_BLACKPAY_CONTRACT_ADDRESS");
   }
   return config;
 }
