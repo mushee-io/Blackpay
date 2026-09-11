@@ -99,8 +99,8 @@ export function Milestones712() {
   async function createIncomeDisclosure(event: FormEvent) {
     event.preventDefault();
     await run(async () => {
-      const employeeIdHex = await privateId("blackpay:employee-id:v1", employeeRef);
-      const verifierIdHex = await privateId("blackpay:verifier:v1", verifierRef);
+      const employeeIdHex = await privateId("blackpay:employee-id:v2", employeeRef);
+      const verifierIdHex = await privateId("blackpay:verifier:v2", verifierRef);
       const witness = getEmployeeWitness(employeeIdHex);
       const result = await getPayrollContractGateway().createIncomeDisclosure({
         employeeIdHex,
@@ -117,8 +117,8 @@ export function Milestones712() {
 
   async function createEmploymentDisclosure() {
     await run(async () => {
-      const employeeIdHex = await privateId("blackpay:employee-id:v1", employeeRef);
-      const verifierIdHex = await privateId("blackpay:verifier:v1", verifierRef);
+      const employeeIdHex = await privateId("blackpay:employee-id:v2", employeeRef);
+      const verifierIdHex = await privateId("blackpay:verifier:v2", verifierRef);
       const witness = getEmployeeWitness(employeeIdHex);
       const result = await getPayrollContractGateway().createEmploymentDisclosure({
         employeeIdHex,
@@ -149,8 +149,8 @@ export function Milestones712() {
   async function issuePrivatePayslip(event: FormEvent) {
     event.preventDefault();
     await run(async () => {
-      const employeeIdHex = await privateId("blackpay:employee-id:v1", payslipEmployeeRef);
-      const payRunIdHex = await privateId("blackpay:payrun-id:v1", payslipRunRef);
+      const employeeIdHex = await privateId("blackpay:employee-id:v2", payslipEmployeeRef);
+      const payRunIdHex = await privateId("blackpay:payrun-id:v2", payslipRunRef);
       const period = Number(payslipPeriod);
       if (!Number.isSafeInteger(period) || period <= 0) throw new Error("Payslip period must be a positive integer");
       const grossMinor = parsePositiveBigInt(payslipGross, "Gross pay");
@@ -173,12 +173,12 @@ export function Milestones712() {
 
   async function exportEmployeeAccess() {
     await run(async () => {
-      const employeeIdHex = await privateId("blackpay:employee-id:v1", payslipEmployeeRef);
+      const employeeIdHex = await privateId("blackpay:employee-id:v2", payslipEmployeeRef);
       if (!employeeAccessPassword) throw new Error("Enter a strong employee access package password");
       const envelope = await exportEmployeeAccessPackage({ employeeIdHex, accessPassword: employeeAccessPassword });
-      saveJsonFile(`blackpay-employee-${employeeIdHex.slice(0, 12)}-access.json`, envelope);
+      saveJsonFile(`blackpay-v2-employee-${employeeIdHex.slice(0, 12)}-access-v3.json`, envelope);
       setEmployeeAccessPassword("");
-      setNotice("Encrypted employee access package exported. Share the JSON file and its password with the employee through separate secure channels.");
+      setNotice("Fresh v3 employee access package exported. After payroll funding, export again so the employee receives the encrypted contract-coin claim capability. Share the JSON and password through separate secure channels.");
     });
   }
 
@@ -199,7 +199,7 @@ export function Milestones712() {
 
   return (
     <section className="shell">
-      <div className="eyebrow">BLACKPAY / MILESTONES 7–12</div>
+      <div className="eyebrow">BLACKPAY V2 / MILESTONES 7–12</div>
       <h2>Disclosure, employee access, compliance, and integrations.</h2>
 
       <nav className="buttonRow" aria-label="Blackpay product areas">
@@ -214,8 +214,8 @@ export function Milestones712() {
 
       <section className="statusGrid">
         <article className="statusCard"><span>M7</span><strong>SELECTIVE DISCLOSURE</strong></article>
-        <article className="statusCard"><span>M8</span><strong>EMPLOYER CONSOLE</strong></article>
-        <article className="statusCard"><span>M9</span><strong>WALLET-BOUND EMPLOYEE PORTAL</strong></article>
+        <article className="statusCard"><span>M8</span><strong>V2 EMPLOYER CONSOLE</strong></article>
+        <article className="statusCard"><span>M9</span><strong>WALLET-BOUND CLAIM PORTAL</strong></article>
         <article className="statusCard"><span>M10–12</span><strong>RELEASE / AUDIT / SDK</strong></article>
       </section>
 
@@ -251,7 +251,7 @@ export function Milestones712() {
           <dl>
             <div><dt>Workspace</dt><dd>ACTIVE FLOW</dd></div>
             <div><dt>Private employees</dt><dd>WALLET BOUND</dd></div>
-            <div><dt>Pay runs</dt><dd>3-STATE LIFECYCLE</dd></div>
+            <div><dt>Pay runs</dt><dd>CONTRACT-BOUND CLAIMS</dd></div>
             <div><dt>Proofs</dt><dd>SCOPED</dd></div>
             <div><dt>Employee portal</dt><dd>/employee</dd></div>
           </dl>
@@ -259,37 +259,37 @@ export function Milestones712() {
 
         <form className="panel" onSubmit={issuePrivatePayslip}>
           <div className="panelNumber">09</div>
-          <h3>Employee payslip + access package</h3>
-          <p>New pay runs create payslips automatically. Use this form to backfill an existing pay run, then export a one-time encrypted access package for the employee's Lace wallet.</p>
+          <h3>Employee payslip + v3 access package</h3>
+          <p>V2 pay runs create payslips automatically. Use this form only to backfill an existing v2 pay run. Export a fresh v3 package after funding so the employee receives the encrypted one-time claim capability.</p>
           <label>Employee reference<input value={payslipEmployeeRef} onChange={(e) => setPayslipEmployeeRef(e.target.value)} placeholder="employee-001" /></label>
           <label>Pay run reference<input value={payslipRunRef} onChange={(e) => setPayslipRunRef(e.target.value)} placeholder="2026-09" /></label>
           <div className="twoCol">
             <label>Period<input inputMode="numeric" value={payslipPeriod} onChange={(e) => setPayslipPeriod(e.target.value)} placeholder="202609" /></label>
-            <label>Currency<input value={payslipCurrency} onChange={(e) => setPayslipCurrency(e.target.value)} placeholder="BLACK" /></label>
+            <label>Currency<input value={payslipCurrency} onChange={(e) => setPayslipCurrency(e.target.value)} placeholder="TOKEN" /></label>
           </div>
           <div className="twoCol">
             <label>Gross minor units<input inputMode="numeric" value={payslipGross} onChange={(e) => setPayslipGross(e.target.value)} placeholder="325000" /></label>
             <label>Net minor units<input inputMode="numeric" value={payslipNet} onChange={(e) => setPayslipNet(e.target.value)} placeholder="325000" /></label>
           </div>
-          <label>Settlement transaction ID (only after paid)<input value={payslipTx} onChange={(e) => setPayslipTx(e.target.value)} placeholder="Leave blank while pay run is only approved" /></label>
+          <label>Settlement transaction ID (only after paid)<input value={payslipTx} onChange={(e) => setPayslipTx(e.target.value)} placeholder="Leave blank until the employee claim settles" /></label>
           <button className="primary full" disabled={busy}>SAVE ENCRYPTED PAYSLIP</button>
 
           <div className="employeeAccessBlock">
             <label>Employee access package password<input type="password" value={employeeAccessPassword} onChange={(e) => setEmployeeAccessPassword(e.target.value)} placeholder="16+ chars, 3 character classes" autoComplete="new-password" /></label>
-            <button className="secondary full" type="button" disabled={busy || !payslipEmployeeRef.trim()} onClick={exportEmployeeAccess}>EXPORT EMPLOYEE ACCESS PACKAGE</button>
-            <p>The package is AES-GCM encrypted and bound to the payout commitment already registered for this employee. A different Lace shielded wallet cannot import it.</p>
+            <button className="secondary full" type="button" disabled={busy || !payslipEmployeeRef.trim()} onClick={exportEmployeeAccess}>EXPORT V3 EMPLOYEE ACCESS PACKAGE</button>
+            <p>The AES-GCM package is bound to the v2 employee commitment and Lace payout key. Funded contract-coin data stays encrypted inside the package and private state.</p>
           </div>
         </form>
 
         <article className="panel">
           <div className="panelNumber">10</div>
           <h3>Security / live release gate</h3>
-          <p>Production status remains fail-closed until contract artifacts, Preview services, contract address, and build checks all pass.</p>
+          <p>Release remains fail-closed until protocol-v2 Compact artifacts, Preview services, the new v2 contract address, and build checks all pass.</p>
           <dl>
             <div><dt>Compact target</dt><dd>0.31.1</dd></div>
             <div><dt>Ledger</dt><dd>8.1.0</dd></div>
-            <div><dt>Employee access</dt><dd>AES-GCM / PBKDF2</dd></div>
-            <div><dt>Wallet binding</dt><dd>PAYOUT COMMITMENT</dd></div>
+            <div><dt>Employee access</dt><dd>V3 / AES-GCM / PBKDF2</dd></div>
+            <div><dt>Wallet binding</dt><dd>PAYOUT KEY + COMMITMENT</dd></div>
           </dl>
         </article>
 
@@ -307,10 +307,11 @@ export function Milestones712() {
         <article className="panel">
           <div className="panelNumber">12</div>
           <h3>API / SDK integrations</h3>
-          <p>Partners get a typed SDK façade over the real Midnight gateway plus a public-safe readiness endpoint.</p>
+          <p>Partners get a typed protocol-v2 SDK façade over the real Midnight gateway plus a public-safe readiness endpoint.</p>
           <dl>
             <div><dt>SDK</dt><dd>src/lib/sdk/blackpay.ts</dd></div>
             <div><dt>Status API</dt><dd>/api/v1/status</dd></div>
+            <div><dt>Settlement API</dt><dd>REGISTER / FUND / CLAIM</dd></div>
             <div><dt>Private fallback</dt><dd>NONE</dd></div>
             <div><dt>Network</dt><dd>{config.network.toUpperCase()}</dd></div>
           </dl>
@@ -318,7 +319,7 @@ export function Milestones712() {
       </section>
 
       <footer>
-        <span>BLACKPAY / MILESTONES 7–12</span>
+        <span>BLACKPAY V2 / MILESTONES 7–12</span>
         <span>PRIVATE BY DEFAULT · DISCLOSE BY PROOF</span>
       </footer>
     </section>
