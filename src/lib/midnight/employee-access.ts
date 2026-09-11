@@ -4,12 +4,28 @@ export type EmployeeAccessPayslipPayload = {
   grossMinor: string;
   netMinor: string;
   currencyCode: string;
-  status: "pending" | "approved" | "paid";
+  status: "pending" | "approved" | "funded" | "paid";
   paymentTransactionId?: string;
   createdAt: number;
 };
 
-type EmployeeAccessCorePayload = {
+export type EmployeeSettlementCapabilityPayload = {
+  claimIdHex: string;
+  payRunIdHex: string;
+  employeeIdHex: string;
+  amountMinor: string;
+  payoutCoinPublicKeyHex: string;
+  paymentSaltHex: string;
+  tokenColorHex: string;
+  fundedCoin?: {
+    nonceHex: string;
+    colorHex: string;
+    value: string;
+    mtIndexCandidates: string[];
+  };
+};
+
+type LegacyCorePayload = {
   employeeIdHex: string;
   salaryMinor: string;
   payoutCommitmentHex: string;
@@ -17,24 +33,31 @@ type EmployeeAccessCorePayload = {
   payslips: EmployeeAccessPayslipPayload[];
 };
 
-type EmployeeAccessPayloadV1 = EmployeeAccessCorePayload & {
+type EmployeeAccessPayloadV1 = LegacyCorePayload & {
   version: "blackpay-employee-access-v1";
 };
 
-type EmployeeAccessPayloadV2 = EmployeeAccessCorePayload & {
+type EmployeeAccessPayloadV2 = LegacyCorePayload & {
   version: "blackpay-employee-access-v2";
   networkId: string;
   contractAddress: string;
   packageId: string;
 };
 
-export type EmployeeAccessPayload = EmployeeAccessPayloadV1 | EmployeeAccessPayloadV2;
-
-type EnvelopeCipher = {
-  name: "AES-GCM";
-  iv: string;
-  ciphertext: string;
+export type EmployeeAccessPayloadV3 = LegacyCorePayload & {
+  version: "blackpay-employee-access-v3";
+  networkId: string;
+  contractAddress: string;
+  packageId: string;
+  payoutCoinPublicKeyHex: string;
+  settlementCapabilities: EmployeeSettlementCapabilityPayload[];
 };
+
+export type EmployeeAccessPayload = EmployeeAccessPayloadV1 | EmployeeAccessPayloadV2 | EmployeeAccessPayloadV3;
+
+export type EmployeeAccessPayloadInput = Omit<EmployeeAccessPayloadV3, "version" | "networkId" | "contractAddress" | "packageId">;
+
+type EnvelopeCipher = { name: "AES-GCM"; iv: string; ciphertext: string };
 
 type EmployeeAccessEnvelopeV1 = {
   format: "blackpay-employee-access-envelope-v1";
@@ -56,7 +79,18 @@ type EmployeeAccessEnvelopeV2 = {
   cipher: EnvelopeCipher;
 };
 
-export type EmployeeAccessEnvelope = EmployeeAccessEnvelopeV1 | EmployeeAccessEnvelopeV2;
+type EmployeeAccessEnvelopeV3 = {
+  format: "blackpay-employee-access-envelope-v3";
+  networkId: string;
+  contractAddress: string;
+  packageId: string;
+  createdAt: string;
+  expiresAt: string;
+  kdf: { name: "PBKDF2"; hash: "SHA-256"; iterations: 600000; salt: string };
+  cipher: EnvelopeCipher;
+};
+
+export type EmployeeAccessEnvelope = EmployeeAccessEnvelopeV1 | EmployeeAccessEnvelopeV2 | EmployeeAccessEnvelopeV3;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -64,6 +98,7 @@ const UINT64_MAX = (1n << 64n) - 1n;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const PACKAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_PAYSLIPS = 240;
+const MAX_SETTLEMENT_CAPABILITIES = 240;
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} is invalid`);
@@ -74,6 +109,12 @@ function stringField(record: Record<string, unknown>, key: string, label: string
   const value = record[key];
   if (typeof value !== "string") throw new Error(`${label} is invalid`);
   return value;
+}
+
+function hex32(value: string, label: string): string {
+  const normalized = value.toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) throw new Error(`${label} is invalid`);
+  return normalized;
 }
 
 function assertBrowserCrypto(): Crypto {
@@ -109,7 +150,7 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 function base64ToBytes(value: string, label: string): Uint8Array {
-  if (!value || value.length > 1_600_000) throw new Error(`${label} is invalid`);
+  if (!value || value.length > 2_200_000) throw new Error(`${label} is invalid`);
   try {
     const binary = atob(value);
     return Uint8Array.from(binary, (char) => char.charCodeAt(0));
@@ -142,9 +183,9 @@ function assertIsoDate(value: string, label: string): number {
   return timestamp;
 }
 
-function additionalData(envelope: EmployeeAccessEnvelopeV2): Uint8Array {
+function additionalData(envelope: EmployeeAccessEnvelopeV2 | EmployeeAccessEnvelopeV3): Uint8Array {
   return encoder.encode([
-    "blackpay-employee-access-envelope-v2",
+    envelope.format,
     envelope.networkId,
     envelope.contractAddress,
     envelope.packageId,
@@ -174,93 +215,116 @@ function assertUintString(value: string, label: string): bigint {
 
 function normalizePayslip(value: unknown, seenPayRuns: Set<string>): EmployeeAccessPayslipPayload {
   const payslip = asRecord(value, "Employee access payslip");
-  const payRunIdHex = stringField(payslip, "payRunIdHex", "Employee access payslip pay-run identifier").toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(payRunIdHex)) throw new Error("Employee access payslip has an invalid pay-run identifier");
+  const payRunIdHex = hex32(stringField(payslip, "payRunIdHex", "Employee access payslip pay-run identifier"), "Employee access payslip pay-run identifier");
   if (seenPayRuns.has(payRunIdHex)) throw new Error("Employee access payload contains duplicate pay-run payslips");
   seenPayRuns.add(payRunIdHex);
-
   const period = payslip.period;
-  if (typeof period !== "number" || !Number.isSafeInteger(period) || period <= 0 || period > 0xffffffff) {
-    throw new Error("Employee access payslip has an invalid period");
-  }
+  if (typeof period !== "number" || !Number.isSafeInteger(period) || period <= 0 || period > 0xffffffff) throw new Error("Employee access payslip has an invalid period");
   const grossMinor = stringField(payslip, "grossMinor", "Employee access payslip gross amount");
   const netMinor = stringField(payslip, "netMinor", "Employee access payslip net amount");
   const gross = assertUintString(grossMinor, "Employee access payslip gross amount");
   const net = assertUintString(netMinor, "Employee access payslip net amount");
   if (net > gross) throw new Error("Employee access payslip net amount cannot exceed gross amount");
-
   const currencyCode = stringField(payslip, "currencyCode", "Employee access payslip currency").toUpperCase();
   if (!/^[A-Z0-9._-]{1,24}$/.test(currencyCode)) throw new Error("Employee access payslip has an invalid currency code");
   const status = payslip.status;
-  if (status !== "pending" && status !== "approved" && status !== "paid") throw new Error("Employee access payslip has an invalid status");
+  if (status !== "pending" && status !== "approved" && status !== "funded" && status !== "paid") throw new Error("Employee access payslip has an invalid status");
   const createdAt = payslip.createdAt;
-  if (typeof createdAt !== "number" || !Number.isSafeInteger(createdAt) || createdAt <= 0 || createdAt > Date.now() + MAX_CLOCK_SKEW_MS) {
-    throw new Error("Employee access payslip has an invalid creation time");
-  }
-
+  if (typeof createdAt !== "number" || !Number.isSafeInteger(createdAt) || createdAt <= 0 || createdAt > Date.now() + MAX_CLOCK_SKEW_MS) throw new Error("Employee access payslip has an invalid creation time");
   const paymentTransactionId = payslip.paymentTransactionId;
-  if (paymentTransactionId !== undefined && typeof paymentTransactionId !== "string") {
+  if (paymentTransactionId !== undefined && typeof paymentTransactionId !== "string") throw new Error("Employee access payslip has an invalid settlement transaction identifier");
+  if (typeof paymentTransactionId === "string" && (paymentTransactionId !== paymentTransactionId.trim() || !/^[0-9A-Za-z:_-]{16,256}$/.test(paymentTransactionId))) {
     throw new Error("Employee access payslip has an invalid settlement transaction identifier");
   }
-  if (typeof paymentTransactionId === "string") {
-    if (paymentTransactionId !== paymentTransactionId.trim() || !/^[0-9A-Za-z:_-]{16,256}$/.test(paymentTransactionId)) {
-      throw new Error("Employee access payslip has an invalid settlement transaction identifier");
-    }
-  }
-
-  return {
-    payRunIdHex,
-    period,
-    grossMinor,
-    netMinor,
-    currencyCode,
-    status,
-    ...(typeof paymentTransactionId === "string" ? { paymentTransactionId } : {}),
-    createdAt,
-  };
+  return { payRunIdHex, period, grossMinor, netMinor, currencyCode, status, ...(typeof paymentTransactionId === "string" ? { paymentTransactionId } : {}), createdAt };
 }
 
-function normalizeCorePayload(record: Record<string, unknown>): EmployeeAccessCorePayload {
-  const employeeIdHex = stringField(record, "employeeIdHex", "Employee access employee identifier").toLowerCase();
-  const payoutCommitmentHex = stringField(record, "payoutCommitmentHex", "Employee access payout commitment").toLowerCase();
-  const saltHex = stringField(record, "saltHex", "Employee access private salt").toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(employeeIdHex)) throw new Error("Employee access payload has an invalid employee identifier");
-  if (!/^[0-9a-f]{64}$/.test(payoutCommitmentHex)) throw new Error("Employee access payload has an invalid payout commitment");
-  if (!/^[0-9a-f]{64}$/.test(saltHex)) throw new Error("Employee access payload has an invalid private salt");
+function normalizeSettlementCapability(value: unknown, expectedEmployeeIdHex: string, seenClaims: Set<string>): EmployeeSettlementCapabilityPayload {
+  const record = asRecord(value, "Employee settlement capability");
+  const claimIdHex = hex32(stringField(record, "claimIdHex", "Employee settlement claim identifier"), "Employee settlement claim identifier");
+  const payRunIdHex = hex32(stringField(record, "payRunIdHex", "Employee settlement pay-run identifier"), "Employee settlement pay-run identifier");
+  const employeeIdHex = hex32(stringField(record, "employeeIdHex", "Employee settlement employee identifier"), "Employee settlement employee identifier");
+  const payoutCoinPublicKeyHex = hex32(stringField(record, "payoutCoinPublicKeyHex", "Employee settlement payout key"), "Employee settlement payout key");
+  const paymentSaltHex = hex32(stringField(record, "paymentSaltHex", "Employee settlement payment salt"), "Employee settlement payment salt");
+  const tokenColorHex = hex32(stringField(record, "tokenColorHex", "Employee settlement token color"), "Employee settlement token color");
+  const amountMinor = stringField(record, "amountMinor", "Employee settlement amount");
+  assertUintString(amountMinor, "Employee settlement amount");
+  if (employeeIdHex !== expectedEmployeeIdHex) throw new Error("Employee settlement capability belongs to a different employee");
+  if (seenClaims.has(claimIdHex)) throw new Error("Employee access package contains duplicate settlement claims");
+  seenClaims.add(claimIdHex);
+
+  let fundedCoin: EmployeeSettlementCapabilityPayload["fundedCoin"];
+  if (record.fundedCoin !== undefined) {
+    const coin = asRecord(record.fundedCoin, "Employee settlement funded coin");
+    const nonceHex = hex32(stringField(coin, "nonceHex", "Employee settlement coin nonce"), "Employee settlement coin nonce");
+    const colorHex = hex32(stringField(coin, "colorHex", "Employee settlement coin color"), "Employee settlement coin color");
+    const coinValue = stringField(coin, "value", "Employee settlement coin value");
+    if (assertUintString(coinValue, "Employee settlement coin value") !== BigInt(amountMinor)) throw new Error("Employee settlement coin amount does not match its claim");
+    if (colorHex !== tokenColorHex) throw new Error("Employee settlement coin color does not match its claim");
+    if (!Array.isArray(coin.mtIndexCandidates) || coin.mtIndexCandidates.length === 0 || coin.mtIndexCandidates.length > 32) {
+      throw new Error("Employee settlement coin has invalid commitment-tree candidates");
+    }
+    const candidates = coin.mtIndexCandidates.map((candidate) => {
+      if (typeof candidate !== "string" || !/^[0-9]+$/.test(candidate)) throw new Error("Employee settlement tree index is invalid");
+      const parsed = BigInt(candidate);
+      if (parsed < 0n || parsed > UINT64_MAX) throw new Error("Employee settlement tree index is outside the supported range");
+      return parsed.toString();
+    });
+    if (new Set(candidates).size !== candidates.length) throw new Error("Employee settlement tree candidates contain duplicates");
+    fundedCoin = { nonceHex, colorHex, value: coinValue, mtIndexCandidates: candidates };
+  }
+
+  return { claimIdHex, payRunIdHex, employeeIdHex, amountMinor, payoutCoinPublicKeyHex, paymentSaltHex, tokenColorHex, ...(fundedCoin ? { fundedCoin } : {}) };
+}
+
+function normalizeLegacyCore(record: Record<string, unknown>): LegacyCorePayload {
+  const employeeIdHex = hex32(stringField(record, "employeeIdHex", "Employee access employee identifier"), "Employee access employee identifier");
+  const payoutCommitmentHex = hex32(stringField(record, "payoutCommitmentHex", "Employee access payout commitment"), "Employee access payout commitment");
+  const saltHex = hex32(stringField(record, "saltHex", "Employee access private salt"), "Employee access private salt");
   const salaryMinor = stringField(record, "salaryMinor", "Employee access salary");
   assertUintString(salaryMinor, "Employee access salary");
   const rawPayslips = record.payslips;
-  if (!Array.isArray(rawPayslips) || rawPayslips.length > MAX_PAYSLIPS) {
-    throw new Error("Employee access payload has an invalid payslip collection");
-  }
+  if (!Array.isArray(rawPayslips) || rawPayslips.length > MAX_PAYSLIPS) throw new Error("Employee access payload has an invalid payslip collection");
   const seenPayRuns = new Set<string>();
   const payslips = rawPayslips.map((payslip) => normalizePayslip(payslip, seenPayRuns));
   return { employeeIdHex, salaryMinor, payoutCommitmentHex, saltHex, payslips };
 }
 
-function assertPayload(value: unknown, envelope?: EmployeeAccessEnvelopeV2): EmployeeAccessPayload {
+function assertPayload(value: unknown, envelope?: EmployeeAccessEnvelopeV2 | EmployeeAccessEnvelopeV3): EmployeeAccessPayload {
   const payload = asRecord(value, "Decrypted employee access payload");
   const version = stringField(payload, "version", "Employee access payload version");
-  const core = normalizeCorePayload(payload);
+  const core = normalizeLegacyCore(payload);
   if (version === "blackpay-employee-access-v1") return { version, ...core };
-  if (version !== "blackpay-employee-access-v2") throw new Error("Unsupported employee access payload version");
-  if (!envelope) throw new Error("Employee access v2 payload is missing authenticated envelope metadata");
-  const networkId = assertNetworkId(stringField(payload, "networkId", "Employee access payload network ID"));
-  const contractAddress = assertContractAddress(stringField(payload, "contractAddress", "Employee access payload contract address"));
-  const packageId = stringField(payload, "packageId", "Employee access payload package identifier").toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(packageId)) throw new Error("Employee access payload has an invalid package identifier");
-  if (networkId !== envelope.networkId || contractAddress !== envelope.contractAddress || packageId !== envelope.packageId) {
-    throw new Error("Employee access package metadata does not match its authenticated payload");
+  if (version === "blackpay-employee-access-v2") {
+    if (!envelope || envelope.format !== "blackpay-employee-access-envelope-v2") throw new Error("Employee access v2 payload is missing authenticated envelope metadata");
+    const networkId = assertNetworkId(stringField(payload, "networkId", "Employee access payload network ID"));
+    const contractAddress = assertContractAddress(stringField(payload, "contractAddress", "Employee access payload contract address"));
+    const packageId = hex32(stringField(payload, "packageId", "Employee access payload package identifier"), "Employee access payload package identifier");
+    if (networkId !== envelope.networkId || contractAddress !== envelope.contractAddress || packageId !== envelope.packageId) throw new Error("Employee access package metadata does not match its authenticated payload");
+    return { version, networkId, contractAddress, packageId, ...core };
   }
-  return { version, networkId, contractAddress, packageId, ...core };
+  if (version === "blackpay-employee-access-v3") {
+    if (!envelope || envelope.format !== "blackpay-employee-access-envelope-v3") throw new Error("Employee access v3 payload is missing authenticated envelope metadata");
+    const networkId = assertNetworkId(stringField(payload, "networkId", "Employee access payload network ID"));
+    const contractAddress = assertContractAddress(stringField(payload, "contractAddress", "Employee access payload contract address"));
+    const packageId = hex32(stringField(payload, "packageId", "Employee access payload package identifier"), "Employee access payload package identifier");
+    if (networkId !== envelope.networkId || contractAddress !== envelope.contractAddress || packageId !== envelope.packageId) throw new Error("Employee access package metadata does not match its authenticated payload");
+    const payoutCoinPublicKeyHex = hex32(stringField(payload, "payoutCoinPublicKeyHex", "Employee access payout coin public key"), "Employee access payout coin public key");
+    const rawCapabilities = payload.settlementCapabilities;
+    if (!Array.isArray(rawCapabilities) || rawCapabilities.length > MAX_SETTLEMENT_CAPABILITIES) throw new Error("Employee access package has an invalid settlement capability collection");
+    const seenClaims = new Set<string>();
+    const settlementCapabilities = rawCapabilities.map((capability) => normalizeSettlementCapability(capability, core.employeeIdHex, seenClaims));
+    return { version, networkId, contractAddress, packageId, payoutCoinPublicKeyHex, settlementCapabilities, ...core };
+  }
+  throw new Error("Unsupported employee access payload version");
 }
 
 export async function encryptEmployeeAccessPayload(params: {
   networkId: string;
   contractAddress: string;
   password: string;
-  payload: EmployeeAccessPayload;
-}): Promise<EmployeeAccessEnvelope> {
+  payload: EmployeeAccessPayloadInput;
+}): Promise<EmployeeAccessEnvelopeV3> {
   assertStrongPassword(params.password);
   const networkId = assertNetworkId(params.networkId);
   const contractAddress = assertContractAddress(params.contractAddress);
@@ -271,8 +335,8 @@ export async function encryptEmployeeAccessPayload(params: {
   const expiresAt = new Date(createdAtMs + PACKAGE_TTL_MS).toISOString();
   const salt = webCrypto.getRandomValues(new Uint8Array(32));
   const iv = webCrypto.getRandomValues(new Uint8Array(12));
-  const envelopeMeta: EmployeeAccessEnvelopeV2 = {
-    format: "blackpay-employee-access-envelope-v2",
+  const envelopeMeta: EmployeeAccessEnvelopeV3 = {
+    format: "blackpay-employee-access-envelope-v3",
     networkId,
     contractAddress,
     packageId,
@@ -281,19 +345,15 @@ export async function encryptEmployeeAccessPayload(params: {
     kdf: { name: "PBKDF2", hash: "SHA-256", iterations: 600000, salt: "" },
     cipher: { name: "AES-GCM", iv: "", ciphertext: "" },
   };
-  const payloadV2 = assertPayload({
-    version: "blackpay-employee-access-v2",
+  const payloadV3 = assertPayload({
+    version: "blackpay-employee-access-v3",
     networkId,
     contractAddress,
     packageId,
-    employeeIdHex: params.payload.employeeIdHex,
-    salaryMinor: params.payload.salaryMinor,
-    payoutCommitmentHex: params.payload.payoutCommitmentHex,
-    saltHex: params.payload.saltHex,
-    payslips: params.payload.payslips,
+    ...params.payload,
   }, envelopeMeta);
-  const plaintext = encoder.encode(JSON.stringify(payloadV2));
-  if (plaintext.byteLength > 1_000_000) throw new Error("Employee access payload is unexpectedly large");
+  const plaintext = encoder.encode(JSON.stringify(payloadV3));
+  if (plaintext.byteLength > 1_500_000) throw new Error("Employee access payload is unexpectedly large");
   const key = await deriveKey(params.password, salt, 600000);
   const encrypted = await webCrypto.subtle.encrypt(
     { name: "AES-GCM", iv: ownedArrayBuffer(iv), additionalData: ownedArrayBuffer(additionalData(envelopeMeta)) },
@@ -315,57 +375,29 @@ export function assertEmployeeAccessEnvelope(value: unknown): EmployeeAccessEnve
   const createdAt = stringField(envelope, "createdAt", "Employee access package creation time");
   const createdAtMs = assertIsoDate(createdAt, "Employee access package creation time");
   if (createdAtMs > Date.now() + MAX_CLOCK_SKEW_MS) throw new Error("Employee access package creation time is in the future");
-
   const kdf = asRecord(envelope.kdf, "Employee access package KDF");
   const cipher = asRecord(envelope.cipher, "Employee access package cipher");
-  if (stringField(cipher, "name", "Employee access package cipher") !== "AES-GCM") {
-    throw new Error("Employee access package uses unsupported encryption settings");
-  }
-  const cipherValue: EnvelopeCipher = {
-    name: "AES-GCM",
-    iv: stringField(cipher, "iv", "Employee access package IV"),
-    ciphertext: stringField(cipher, "ciphertext", "Employee access package ciphertext"),
-  };
-  if (stringField(kdf, "name", "Employee access package KDF") !== "PBKDF2" || stringField(kdf, "hash", "Employee access package KDF hash") !== "SHA-256") {
-    throw new Error("Employee access package uses unsupported key derivation settings");
-  }
+  if (stringField(cipher, "name", "Employee access package cipher") !== "AES-GCM") throw new Error("Employee access package uses unsupported encryption settings");
+  const cipherValue: EnvelopeCipher = { name: "AES-GCM", iv: stringField(cipher, "iv", "Employee access package IV"), ciphertext: stringField(cipher, "ciphertext", "Employee access package ciphertext") };
+  if (stringField(kdf, "name", "Employee access package KDF") !== "PBKDF2" || stringField(kdf, "hash", "Employee access package KDF hash") !== "SHA-256") throw new Error("Employee access package uses unsupported key derivation settings");
   const salt = stringField(kdf, "salt", "Employee access package KDF salt");
   const iterations = kdf.iterations;
-
   if (format === "blackpay-employee-access-envelope-v1") {
     if (iterations !== 250000) throw new Error("Employee access package uses unsupported legacy key derivation settings");
-    return {
-      format,
-      networkId,
-      contractAddress,
-      createdAt,
-      kdf: { name: "PBKDF2", hash: "SHA-256", iterations: 250000, salt },
-      cipher: cipherValue,
-    };
+    return { format, networkId, contractAddress, createdAt, kdf: { name: "PBKDF2", hash: "SHA-256", iterations: 250000, salt }, cipher: cipherValue };
   }
-
-  if (format === "blackpay-employee-access-envelope-v2") {
+  if (format === "blackpay-employee-access-envelope-v2" || format === "blackpay-employee-access-envelope-v3") {
     if (iterations !== 600000) throw new Error("Employee access package uses unsupported key derivation settings");
-    const packageId = stringField(envelope, "packageId", "Employee access package identifier").toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(packageId)) throw new Error("Employee access package has an invalid package identifier");
+    const packageId = hex32(stringField(envelope, "packageId", "Employee access package identifier"), "Employee access package identifier");
     const expiresAt = stringField(envelope, "expiresAt", "Employee access package expiry");
     const expiresAtMs = assertIsoDate(expiresAt, "Employee access package expiry");
-    if (expiresAtMs <= createdAtMs || expiresAtMs - createdAtMs > PACKAGE_TTL_MS + MAX_CLOCK_SKEW_MS) {
-      throw new Error("Employee access package has an invalid expiry window");
-    }
+    if (expiresAtMs <= createdAtMs || expiresAtMs - createdAtMs > PACKAGE_TTL_MS + MAX_CLOCK_SKEW_MS) throw new Error("Employee access package has an invalid expiry window");
     if (expiresAtMs <= Date.now()) throw new Error("Employee access package has expired. Ask the employer to export a fresh package.");
-    return {
-      format,
-      networkId,
-      contractAddress,
-      packageId,
-      createdAt,
-      expiresAt,
-      kdf: { name: "PBKDF2", hash: "SHA-256", iterations: 600000, salt },
-      cipher: cipherValue,
-    };
+    if (format === "blackpay-employee-access-envelope-v2") {
+      return { format, networkId, contractAddress, packageId, createdAt, expiresAt, kdf: { name: "PBKDF2", hash: "SHA-256", iterations: 600000, salt }, cipher: cipherValue };
+    }
+    return { format, networkId, contractAddress, packageId, createdAt, expiresAt, kdf: { name: "PBKDF2", hash: "SHA-256", iterations: 600000, salt }, cipher: cipherValue };
   }
-
   throw new Error("Unsupported employee access package format");
 }
 
@@ -374,17 +406,13 @@ export async function decryptEmployeeAccessPayload(
   password: string,
 ): Promise<{ envelope: EmployeeAccessEnvelope; payload: EmployeeAccessPayload }> {
   const envelope = assertEmployeeAccessEnvelope(envelopeValue);
-  if (envelope.format === "blackpay-employee-access-envelope-v2") assertStrongPassword(password);
-  else assertLegacyPassword(password);
-
+  if (envelope.format === "blackpay-employee-access-envelope-v1") assertLegacyPassword(password);
+  else assertStrongPassword(password);
   const salt = base64ToBytes(envelope.kdf.salt, "Employee access package KDF salt");
   const iv = base64ToBytes(envelope.cipher.iv, "Employee access package IV");
   const ciphertext = base64ToBytes(envelope.cipher.ciphertext, "Employee access package ciphertext");
-  const expectedSaltLength = envelope.format === "blackpay-employee-access-envelope-v2" ? 32 : 16;
-  if (salt.byteLength !== expectedSaltLength || iv.byteLength !== 12 || ciphertext.byteLength < 16 || ciphertext.byteLength > 1_100_000) {
-    throw new Error("Employee access package cryptographic fields are invalid");
-  }
-
+  const expectedSaltLength = envelope.format === "blackpay-employee-access-envelope-v1" ? 16 : 32;
+  if (salt.byteLength !== expectedSaltLength || iv.byteLength !== 12 || ciphertext.byteLength < 16 || ciphertext.byteLength > 1_700_000) throw new Error("Employee access package cryptographic fields are invalid");
   const key = await deriveKey(password, salt, envelope.kdf.iterations);
   let plaintext: ArrayBuffer;
   try {
@@ -392,9 +420,7 @@ export async function decryptEmployeeAccessPayload(
       {
         name: "AES-GCM",
         iv: ownedArrayBuffer(iv),
-        ...(envelope.format === "blackpay-employee-access-envelope-v2"
-          ? { additionalData: ownedArrayBuffer(additionalData(envelope)) }
-          : {}),
+        ...(envelope.format === "blackpay-employee-access-envelope-v1" ? {} : { additionalData: ownedArrayBuffer(additionalData(envelope)) }),
       },
       key,
       ownedArrayBuffer(ciphertext),
@@ -402,15 +428,12 @@ export async function decryptEmployeeAccessPayload(
   } catch {
     throw new Error("Employee access package could not be decrypted. Check the access password and file integrity.");
   }
-
   let parsed: unknown;
   try {
     parsed = JSON.parse(decoder.decode(plaintext));
   } catch {
     throw new Error("Employee access package decrypted to invalid JSON");
   }
-  return {
-    envelope,
-    payload: assertPayload(parsed, envelope.format === "blackpay-employee-access-envelope-v2" ? envelope : undefined),
-  };
+  const authenticatedEnvelope = envelope.format === "blackpay-employee-access-envelope-v1" ? undefined : envelope;
+  return { envelope, payload: assertPayload(parsed, authenticatedEnvelope) };
 }
