@@ -9,8 +9,10 @@ const circuits = [
   "updateEmployee",
   "removeEmployee",
   "createPayRun",
+  "registerPayRunPayment",
   "approvePayRun",
-  "finalizePayRun",
+  "fundPayRunPayment",
+  "claimPayRunPayment",
   "proveIncomeAtLeast",
   "createIncomeDisclosure",
   "createEmploymentDisclosure",
@@ -41,18 +43,11 @@ await mkdir(`${publicRoot}/zkir`, { recursive: true });
 await mkdir(`${publicRoot}/compact`, { recursive: true });
 await mkdir(generatedRoot, { recursive: true });
 
-// Proving and verification material is served as static HTTPS assets because
-// FetchZkConfigProvider resolves /keys and /zkir from the application origin.
 await cp(`${buildRoot}/keys`, `${publicRoot}/keys`, { recursive: true });
 await cp(`${buildRoot}/zkir`, `${publicRoot}/zkir`, { recursive: true });
 await cp(`${buildRoot}/compiler/contract-info.json`, `${publicRoot}/compact/contract-info.json`);
-
-// Do not pre-bundle generated Compact bindings with esbuild. compact-runtime
-// imports wasm-bindgen modules whose named WASM exports must be handled by the
-// application's Webpack async-WebAssembly pipeline. Copy the compiler output
-// intact and let Next.js bundle it once, alongside the rest of MidnightJS.
 await cp(`${buildRoot}/contract`, generatedRoot, { recursive: true });
 
 await requireFile(`${generatedRoot}/index.js`);
 await requireFile(`${publicRoot}/compact/contract-info.json`);
-console.log(`Prepared Blackpay Next.js Compact runtime and browser proving assets for ${circuits.length} circuits.`);
+console.log(`Prepared Blackpay protocol v2 Next.js Compact runtime and browser proving assets for ${circuits.length} circuits.`);
