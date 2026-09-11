@@ -3,14 +3,13 @@
 import { FormEvent, useMemo, useState } from "react";
 import { buildPublicAuditBundle } from "@/lib/compliance/audit-bundle";
 import { getPayrollContractGateway } from "@/lib/midnight/contract-client";
+import {
+  exportEmployeeAccessPackage,
+  issuePortalPayslip,
+} from "@/lib/midnight/live-runtime";
 import { getMidnightPublicConfig } from "@/lib/midnight/network";
 import { sha256Hex } from "@/lib/payroll/commitments";
-import {
-  getEmployeeWitness,
-  listPrivatePayslips,
-  putPrivatePayslip,
-} from "@/lib/payroll/session-store";
-import type { PrivatePayslip } from "@/lib/payroll/types";
+import { getEmployeeWitness } from "@/lib/payroll/session-store";
 import { newPrivateSaltHex } from "@/lib/payroll/validation";
 
 function message(error: unknown): string {
@@ -47,6 +46,17 @@ function parsePositiveBigInt(value: string, label: string): bigint {
   }
 }
 
+function saveJsonFile(name: string, value: unknown): void {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  anchor.rel = "noopener";
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export function Milestones712() {
   const config = useMemo(() => getMidnightPublicConfig(), []);
   const [busy, setBusy] = useState(false);
@@ -66,7 +76,7 @@ export function Milestones712() {
   const [payslipNet, setPayslipNet] = useState("");
   const [payslipCurrency, setPayslipCurrency] = useState("");
   const [payslipTx, setPayslipTx] = useState("");
-  const [payslips, setPayslips] = useState<PrivatePayslip[]>([]);
+  const [employeeAccessPassword, setEmployeeAccessPassword] = useState("");
 
   const [proofRefs, setProofRefs] = useState("");
   const [disclosureRefs, setDisclosureRefs] = useState("");
@@ -147,29 +157,28 @@ export function Milestones712() {
       const netMinor = parsePositiveBigInt(payslipNet, "Net pay");
       if (netMinor > grossMinor) throw new Error("Net pay cannot exceed gross pay");
       if (!payslipCurrency.trim()) throw new Error("Currency code is required");
-      if (!payslipTx.trim()) throw new Error("A real settlement transaction ID is required");
 
-      putPrivatePayslip({
+      const payslip = await issuePortalPayslip({
         employeeIdHex,
         payRunIdHex,
         period,
         grossMinor,
         netMinor,
         currencyCode: payslipCurrency.trim().toUpperCase(),
-        paymentTransactionId: payslipTx.trim(),
-        status: "submitted",
-        createdAt: Date.now(),
+        ...(payslipTx.trim() ? { paymentTransactionId: payslipTx.trim() } : {}),
       });
-      setPayslips(listPrivatePayslips(employeeIdHex));
-      setNotice("Private payslip stored in volatile session memory. No payroll amount was written to public storage.");
+      setNotice(`Encrypted employee payslip saved as ${payslip.status.toUpperCase()}. No salary amount was written to public storage.`);
     });
   }
 
-  async function loadPrivatePayslips() {
+  async function exportEmployeeAccess() {
     await run(async () => {
       const employeeIdHex = await privateId("blackpay:employee-id:v1", payslipEmployeeRef);
-      setPayslips(listPrivatePayslips(employeeIdHex));
-      setNotice("Private payslip view refreshed from this browser session.");
+      if (!employeeAccessPassword) throw new Error("Enter a strong employee access package password");
+      const envelope = await exportEmployeeAccessPackage({ employeeIdHex, accessPassword: employeeAccessPassword });
+      saveJsonFile(`blackpay-employee-${employeeIdHex.slice(0, 12)}-access.json`, envelope);
+      setEmployeeAccessPassword("");
+      setNotice("Encrypted employee access package exported. Share the JSON file and its password with the employee through separate secure channels.");
     });
   }
 
@@ -198,7 +207,7 @@ export function Milestones712() {
         <span className="network">PEOPLE</span>
         <span className="network">PAYRUNS</span>
         <span className="network">PROOFS</span>
-        <span className="network">EMPLOYEE</span>
+        <a className="network" href="/employee">EMPLOYEE PORTAL</a>
         <span className="network">AUDIT</span>
         <span className="network">API</span>
       </nav>
@@ -206,7 +215,7 @@ export function Milestones712() {
       <section className="statusGrid">
         <article className="statusCard"><span>M7</span><strong>SELECTIVE DISCLOSURE</strong></article>
         <article className="statusCard"><span>M8</span><strong>EMPLOYER CONSOLE</strong></article>
-        <article className="statusCard"><span>M9</span><strong>EMPLOYEE PORTAL</strong></article>
+        <article className="statusCard"><span>M9</span><strong>WALLET-BOUND EMPLOYEE PORTAL</strong></article>
         <article className="statusCard"><span>M10–12</span><strong>RELEASE / AUDIT / SDK</strong></article>
       </section>
 
@@ -238,42 +247,38 @@ export function Milestones712() {
         <article className="panel">
           <div className="panelNumber">08</div>
           <h3>Employer dashboard</h3>
-          <p>The employer surface now spans workspace, people, pay runs, proofs, disclosure, audit, and release readiness.</p>
+          <p>The employer surface spans workspace, people, pay runs, proofs, employee access, disclosure, audit, and release readiness.</p>
           <dl>
             <div><dt>Workspace</dt><dd>ACTIVE FLOW</dd></div>
-            <div><dt>Private employees</dt><dd>COMMITMENT BASED</dd></div>
+            <div><dt>Private employees</dt><dd>WALLET BOUND</dd></div>
             <div><dt>Pay runs</dt><dd>3-STATE LIFECYCLE</dd></div>
             <div><dt>Proofs</dt><dd>SCOPED</dd></div>
-            <div><dt>Contract</dt><dd>{config.contractAddress ? "CONFIGURED" : "DEPLOY REQUIRED"}</dd></div>
+            <div><dt>Employee portal</dt><dd>/employee</dd></div>
           </dl>
         </article>
 
         <form className="panel" onSubmit={issuePrivatePayslip}>
           <div className="panelNumber">09</div>
-          <h3>Employee portal / payslip</h3>
-          <p>Payslips live only in volatile private session memory until encrypted persistence is wired.</p>
+          <h3>Employee payslip + access package</h3>
+          <p>New pay runs create payslips automatically. Use this form to backfill an existing pay run, then export a one-time encrypted access package for the employee's Lace wallet.</p>
           <label>Employee reference<input value={payslipEmployeeRef} onChange={(e) => setPayslipEmployeeRef(e.target.value)} placeholder="employee-001" /></label>
           <label>Pay run reference<input value={payslipRunRef} onChange={(e) => setPayslipRunRef(e.target.value)} placeholder="2026-09" /></label>
           <div className="twoCol">
             <label>Period<input inputMode="numeric" value={payslipPeriod} onChange={(e) => setPayslipPeriod(e.target.value)} placeholder="202609" /></label>
-            <label>Currency<input value={payslipCurrency} onChange={(e) => setPayslipCurrency(e.target.value)} placeholder="USDM" /></label>
+            <label>Currency<input value={payslipCurrency} onChange={(e) => setPayslipCurrency(e.target.value)} placeholder="BLACK" /></label>
           </div>
           <div className="twoCol">
             <label>Gross minor units<input inputMode="numeric" value={payslipGross} onChange={(e) => setPayslipGross(e.target.value)} placeholder="325000" /></label>
             <label>Net minor units<input inputMode="numeric" value={payslipNet} onChange={(e) => setPayslipNet(e.target.value)} placeholder="325000" /></label>
           </div>
-          <label>Settlement transaction ID<input value={payslipTx} onChange={(e) => setPayslipTx(e.target.value)} placeholder="Real Midnight transaction ID" /></label>
-          <div className="buttonRow">
-            <button className="primary" disabled={busy}>STORE PRIVATE PAYSLIP</button>
-            <button className="secondary" type="button" disabled={busy} onClick={loadPrivatePayslips}>REFRESH MY PAYSLIPS</button>
+          <label>Settlement transaction ID (only after paid)<input value={payslipTx} onChange={(e) => setPayslipTx(e.target.value)} placeholder="Leave blank while pay run is only approved" /></label>
+          <button className="primary full" disabled={busy}>SAVE ENCRYPTED PAYSLIP</button>
+
+          <div className="employeeAccessBlock">
+            <label>Employee access package password<input type="password" value={employeeAccessPassword} onChange={(e) => setEmployeeAccessPassword(e.target.value)} placeholder="16+ chars, 3 character classes" autoComplete="new-password" /></label>
+            <button className="secondary full" type="button" disabled={busy || !payslipEmployeeRef.trim()} onClick={exportEmployeeAccess}>EXPORT EMPLOYEE ACCESS PACKAGE</button>
+            <p>The package is AES-GCM encrypted and bound to the payout commitment already registered for this employee. A different Lace shielded wallet cannot import it.</p>
           </div>
-          {payslips.map((payslip) => (
-            <article className="statusCard" key={`${payslip.payRunIdHex}:${payslip.paymentTransactionId}`}>
-              <span>PERIOD {payslip.period}</span>
-              <strong>{payslip.netMinor.toString()} {payslip.currencyCode}</strong>
-              <p>{payslip.status.toUpperCase()} · gross {payslip.grossMinor.toString()}</p>
-            </article>
-          ))}
         </form>
 
         <article className="panel">
@@ -283,8 +288,8 @@ export function Milestones712() {
           <dl>
             <div><dt>Compact target</dt><dd>0.31.1</dd></div>
             <div><dt>Ledger</dt><dd>8.1.0</dd></div>
-            <div><dt>Proof server</dt><dd>8.1.0</dd></div>
-            <div><dt>Live command</dt><dd>npm run live:verify</dd></div>
+            <div><dt>Employee access</dt><dd>AES-GCM / PBKDF2</dd></div>
+            <div><dt>Wallet binding</dt><dd>PAYOUT COMMITMENT</dd></div>
           </dl>
         </article>
 
