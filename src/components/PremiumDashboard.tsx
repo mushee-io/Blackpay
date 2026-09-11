@@ -25,6 +25,7 @@ type IconName =
   | "access"
   | "audit"
   | "portal"
+  | "blackout"
   | "runtime";
 
 const employerNav: Array<{ href: string; label: string; icon: IconName }> = [
@@ -36,6 +37,7 @@ const employerNav: Array<{ href: string; label: string; icon: IconName }> = [
 ];
 
 const privateNav: Array<{ href: string; label: string; icon: IconName }> = [
+  { href: "/blackout-payroll", label: "Blackout Payroll", icon: "blackout" },
   { href: "/disclosures", label: "Disclosures", icon: "disclosures" },
   { href: "/employee-access", label: "Employee access", icon: "access" },
   { href: "/audit", label: "Audit", icon: "audit" },
@@ -64,6 +66,7 @@ function Icon({ name }: { name: IconName }) {
   if (name === "access") return <svg {...common}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>;
   if (name === "audit") return <svg {...common}><path d="M4 20V10M10 20V4M16 20v-7M22 20V7" /></svg>;
   if (name === "portal") return <svg {...common}><rect x="3" y="3" width="14" height="18" rx="2" /><path d="M10 12h11M17 8l4 4-4 4" /></svg>;
+  if (name === "blackout") return <svg {...common}><rect x="3" y="3" width="18" height="18" /><path d="M8 7v10M16 7v10M12 3v18" /></svg>;
   return <svg {...common}><path d="m12 3 8 4-8 4-8-4 8-4Z" /><path d="m4 12 8 4 8-4M4 17l8 4 8-4" /></svg>;
 }
 
@@ -206,6 +209,7 @@ export function PremiumDashboard() {
               <Link href="/employees"><span><Icon name="employees" /></span><div><strong>Employees</strong><small>Private salary and payout commitments</small></div><b>→</b></Link>
               <Link href="/pay-runs"><span><Icon name="payruns" /></span><div><strong>Pay runs</strong><small>Create, approve and fund exact claims</small></div><b>→</b></Link>
               <Link href="/proofs"><span><Icon name="proofs" /></span><div><strong>Proofs</strong><small>Verify income without revealing salary</small></div><b>→</b></Link>
+              <Link className="premiumBlackoutRoom" href="/blackout-payroll"><span><Icon name="blackout" /></span><div><strong>Blackout Payroll</strong><small>Cyber-private payroll workspace</small></div><b>NEW →</b></Link>
             </div>
           </article>
 
@@ -229,7 +233,7 @@ export function PremiumDashboard() {
 
         <section className="premiumClosing">
           <div><span className="premiumEyebrow">Private by default</span><h2>Payroll infrastructure that reveals only what needs to be proven.</h2></div>
-          <div className="premiumClosingLinks"><Link href="/disclosures">Selective disclosures →</Link><Link href="/employee">Employee portal →</Link></div>
+          <div className="premiumClosingLinks"><Link href="/blackout-payroll">Blackout Payroll →</Link><Link href="/disclosures">Selective disclosures →</Link><Link href="/employee">Employee portal →</Link></div>
         </section>
 
         <footer className="premiumFooter">
