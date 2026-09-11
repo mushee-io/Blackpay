@@ -13,6 +13,11 @@ import {
   isPayrollContractGatewayReady,
   subscribePayrollContractGateway,
 } from "@/lib/midnight/contract-client";
+import {
+  markPortalPayRunPaid,
+  recordPortalPayslipsForPayRun,
+  rememberPrivateWorkspaceCurrency,
+} from "@/lib/midnight/live-runtime";
 import { submitShieldedPayroll } from "@/lib/midnight/payments";
 import {
   paymentsRoot,
@@ -132,6 +137,7 @@ export function BlackpayApp() {
       const workspaceIdHex = await privateId("blackpay:workspace:v1", companyName);
       const currencyIdHex = await privateId("blackpay:currency:v1", currencyCode.toUpperCase());
       const result = await gateway.createWorkspace({ workspaceIdHex, currencyIdHex, frequency });
+      await rememberPrivateWorkspaceCurrency(currencyCode);
       setNotice(`Workspace transaction submitted: ${result.transactionId}`);
     });
   }
@@ -161,7 +167,7 @@ export function BlackpayApp() {
       const result = await getPayrollContractGateway().addEmployee({ employeeIdHex, witness });
       setSalaryMinor("");
       setShieldedRecipient("");
-      setNotice(`Private employee commitment submitted: ${result.transactionId}`);
+      setNotice(`Private employee commitment submitted: ${result.transactionId}. The payout commitment is now the employee wallet binding for access packages.`);
     });
   }
 
@@ -194,8 +200,14 @@ export function BlackpayApp() {
         employeeCount: payments.length,
         witness,
       });
+      await recordPortalPayslipsForPayRun({
+        payRunIdHex,
+        period,
+        payments,
+        currencyCode: currencyCode || undefined,
+      });
       setPreparedRuns((current) => ({ ...current, [payRunIdHex]: { payRunIdHex, payments } }));
-      setNotice(`Private pay run created: ${result.transactionId}`);
+      setNotice(`Private pay run created: ${result.transactionId}. Employee payslips were generated in encrypted private state.`);
     });
   }
 
@@ -204,7 +216,7 @@ export function BlackpayApp() {
       if (!connected) throw new Error("Connect a Midnight wallet first");
       const payRunIdHex = await privateId("blackpay:payrun-id:v1", payRunId);
       const result = await getPayrollContractGateway().approvePayRun(payRunIdHex);
-      setNotice(`Pay run approved: ${result.transactionId}`);
+      setNotice(`Pay run approved: ${result.transactionId}. Matching private payslips are now APPROVED.`);
     });
   }
 
@@ -228,7 +240,8 @@ export function BlackpayApp() {
           payRunIdHex,
           transactionCommitmentHex: txCommitmentHex,
         });
-        setNotice(`Payroll paid ${paymentResult.transactionId}; run finalized ${finalization.transactionId}.`);
+        await markPortalPayRunPaid(payRunIdHex, paymentResult.transactionId);
+        setNotice(`Payroll paid ${paymentResult.transactionId}; run finalized ${finalization.transactionId}. Employee payslips are now PAID.`);
       } catch (error) {
         throw new Error(
           `Payroll payment was submitted as ${paymentResult.transactionId}, but pay-run finalization failed: ${errorMessage(error)}`,
@@ -272,6 +285,7 @@ export function BlackpayApp() {
           <h1>BLACKPAY</h1>
         </div>
         <div className="topActions">
+          <a className="secondary" href="/employee">EMPLOYEE PORTAL</a>
           <span className="network">{config.network.toUpperCase()}</span>
           {connected ? (
             <span className="walletConnected">{connected.name}</span>
@@ -340,7 +354,7 @@ export function BlackpayApp() {
         <form className="panel" onSubmit={addEmployee}>
           <div className="panelNumber">02</div>
           <h3>Private employee</h3>
-          <p>Salary, payout destination, and salt remain private witness material.</p>
+          <p>Salary, payout destination, and salt remain private witness material. The payout commitment also binds the employee portal to the correct Lace wallet.</p>
           <label>Employee reference<input value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="Internal employee ID" /></label>
           <label>Salary in minor units<input inputMode="numeric" value={salaryMinor} onChange={(e) => setSalaryMinor(e.target.value)} placeholder="325000" /></label>
           <label>Shielded recipient<input value={shieldedRecipient} onChange={(e) => setShieldedRecipient(e.target.value)} placeholder="Midnight shielded address" /></label>
@@ -350,7 +364,7 @@ export function BlackpayApp() {
         <form className="panel wide" onSubmit={createPayRun}>
           <div className="panelNumber">03</div>
           <h3>Confidential pay run</h3>
-          <p>One row per employee. Private amounts and recipients are used to create the shielded payroll transaction.</p>
+          <p>One row per employee. Private amounts and recipients create the pay-run commitment and the employee's encrypted payslip record.</p>
           <div className="twoCol">
             <label>Pay run reference<input value={payRunId} onChange={(e) => setPayRunId(e.target.value)} placeholder="2026-09" /></label>
             <label>Period number<input inputMode="numeric" value={payPeriod} onChange={(e) => setPayPeriod(e.target.value)} placeholder="202609" /></label>
@@ -387,7 +401,7 @@ export function BlackpayApp() {
       </section>
 
       <footer>
-        <span>BLACKPAY / MILESTONES 1–6</span>
+        <span>BLACKPAY / LIVE EMPLOYER</span>
         <span>NO MOCK TRANSACTIONS · NO FAKE PROOFS</span>
       </footer>
     </main>
