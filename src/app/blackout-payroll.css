@@ -1,0 +1,265 @@
+.blackoutPayrollExperience {
+  --bo-bg: #060606;
+  --bo-bg-2: #090909;
+  --bo-panel: #0d0d0d;
+  --bo-panel-2: #111111;
+  --bo-line: rgba(255,255,255,.09);
+  --bo-line-strong: rgba(255,255,255,.16);
+  --bo-text: #eceae3;
+  --bo-muted: #8d8a82;
+  --bo-red: #ff5a5f;
+  --bo-green: #27b88a;
+  --bo-yellow: #ffbf00;
+  min-height: 100vh;
+  background: var(--bo-bg);
+  color: var(--bo-text);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+}
+
+.blackoutPayrollExperience * { box-sizing: border-box; }
+.blackoutPayrollExperience a { color: inherit; }
+.blackoutPayrollExperience ::selection { background: var(--bo-red); color: #050505; }
+
+.blackoutStatusStrip {
+  min-height: 30px;
+  padding: 0 4vw;
+  border-bottom: 1px solid var(--bo-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  background: #030303;
+  color: #77746e;
+  font: 700 9px/1.1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.blackoutStatusStrip > span { display: flex; align-items: center; gap: 9px; }
+.blackoutStatusStrip > span i { width: 6px; height: 6px; background: var(--bo-red); display: inline-block; }
+.blackoutStatusStrip > div { display: flex; align-items: center; gap: 22px; }
+.blackoutStatusLive { color: #56e0bb; }
+
+.blackoutHeader {
+  min-height: 76px;
+  padding: 0 4vw;
+  display: grid;
+  grid-template-columns: minmax(190px, .65fr) minmax(0, 1.6fr) auto;
+  align-items: center;
+  gap: 30px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px solid var(--bo-line);
+  background: rgba(6,6,6,.96);
+  backdrop-filter: blur(14px);
+}
+.blackoutBrand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; width: fit-content; }
+.blackoutBrandMark {
+  width: 24px;
+  height: 30px;
+  border: 2px solid var(--bo-text);
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.blackoutBrandMark::after { content: ""; position: absolute; right: -7px; width: 3px; height: 3px; background: var(--bo-red); }
+.blackoutBrandMark i { width: 6px; height: 16px; background: var(--bo-text); display: block; }
+.blackoutBrand > span:last-child { display: grid; gap: 2px; }
+.blackoutBrand strong { font-size: 19px; letter-spacing: -.03em; font-weight: 900; }
+.blackoutBrand small { color: var(--bo-muted); font: 700 8px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .2em; }
+
+.blackoutNav { display: flex; justify-content: center; align-items: center; gap: clamp(16px, 2.8vw, 44px); }
+.blackoutNav a {
+  min-height: 76px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: #8b8982;
+  border-bottom: 2px solid transparent;
+  font: 800 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .17em;
+  white-space: nowrap;
+}
+.blackoutNav a:hover { color: var(--bo-text); }
+.blackoutNav a.active { color: var(--bo-text); border-color: var(--bo-red); }
+.blackoutNav b { padding: 4px 5px; border: 1px solid rgba(255,90,95,.45); color: var(--bo-red); background: rgba(255,90,95,.08); font-size: 8px; }
+.blackoutNavAction {
+  padding: 13px 16px;
+  border: 1px solid var(--bo-text);
+  color: #080808 !important;
+  background: var(--bo-text);
+  text-decoration: none;
+  font: 900 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .12em;
+}
+.blackoutNavAction:hover { background: #fff; }
+
+.blackoutHero { position: relative; overflow: hidden; border-bottom: 1px solid var(--bo-line); background: #050505; }
+.blackoutGrid {
+  position: absolute;
+  inset: 0;
+  opacity: .035;
+  background-image: linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+}
+.blackoutHeroInner { width: min(1440px, 100%); margin: 0 auto; padding: 64px 4vw 72px; position: relative; z-index: 1; }
+.blackoutHeroMeta { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 46px; color: var(--bo-muted); font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .16em; text-transform: uppercase; }
+.blackoutHeroMeta > span:first-child { display: flex; align-items: center; gap: 12px; color: var(--bo-red); }
+.blackoutHeroMeta > span:first-child i { width: 8px; height: 8px; background: var(--bo-red); display: block; }
+.blackoutHeroMeta b { margin-left: 12px; padding: 6px 9px; border: 1px solid rgba(255,191,0,.55); background: rgba(255,191,0,.06); color: var(--bo-yellow); font-weight: 800; }
+.blackoutEyebrow { color: var(--bo-red); font: 800 9px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .24em; text-transform: uppercase; }
+.blackoutHeroCopy { max-width: 1100px; }
+.blackoutHeroCopy h1,
+.blackoutSectionHeader h2,
+.blackoutFinalStatement h2 {
+  font-family: "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  font-stretch: condensed;
+  text-transform: uppercase;
+  letter-spacing: -.055em;
+}
+.blackoutHeroCopy h1 { margin: 20px 0 18px; font-size: clamp(62px, 9vw, 142px); line-height: .84; font-weight: 950; }
+.blackoutHeroCopy p { max-width: 780px; margin: 0; color: #9c9991; font-size: clamp(18px, 2vw, 27px); line-height: 1.5; }
+.blackoutThesisBar { margin-top: 52px; padding-top: 22px; border-top: 1px solid var(--bo-line); display: flex; align-items: center; gap: 24px; flex-wrap: wrap; color: var(--bo-muted); font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+.blackoutThesisBar strong { color: var(--bo-text); }
+.blackoutThesisBar span:nth-of-type(2) strong { color: var(--bo-red); }
+.blackoutThesisBar i { color: rgba(255,255,255,.2); font-style: normal; }
+.blackoutThesisBar a { margin-left: auto; color: var(--bo-text); text-decoration: none; font-weight: 900; }
+.blackoutThesisBar a:hover { color: var(--bo-red); }
+
+.blackoutOverview,
+.blackoutWorkspace,
+.blackoutProtection,
+.blackoutFinalStatement,
+.blackoutFooter { width: min(1440px, 100%); margin: 0 auto; padding-left: 4vw; padding-right: 4vw; }
+.blackoutOverview { padding-top: 56px; padding-bottom: 72px; }
+.blackoutSectionHeader { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 28px; }
+.blackoutSectionHeader h2 { margin: 10px 0 0; font-size: clamp(32px, 4vw, 58px); line-height: .9; font-weight: 950; }
+.blackoutSectionHeader > a { padding: 14px 18px; background: var(--bo-text); color: #070707; text-decoration: none; font: 900 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .13em; }
+.blackoutSectionHeader > a:hover { background: #fff; }
+
+.blackoutMetricGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--bo-line); border-left: 1px solid var(--bo-line); }
+.blackoutMetricGrid article { min-height: 190px; padding: 22px; border-right: 1px solid var(--bo-line); border-bottom: 1px solid var(--bo-line); background: #090909; display: flex; flex-direction: column; }
+.blackoutMetricGrid span { color: var(--bo-muted); font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .11em; }
+.blackoutMetricGrid strong { margin-top: 28px; font: 950 clamp(24px, 2.3vw, 38px)/.95 "Arial Narrow", Arial, sans-serif; letter-spacing: -.035em; }
+.blackoutMetricGrid article:nth-child(1) strong,
+.blackoutMetricGrid article:nth-child(4) strong { color: var(--bo-red); }
+.blackoutMetricGrid article:nth-child(2) strong,
+.blackoutMetricGrid article:nth-child(3) strong { color: var(--bo-green); }
+.blackoutMetricGrid small { margin-top: auto; color: #77746f; font: 500 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.blackoutWorkspace { padding-top: 70px; padding-bottom: 86px; border-top: 1px solid var(--bo-line); }
+.workspaceHeader { margin-bottom: 20px; }
+.blackoutZeroTag { color: #8a8882; font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .1em; white-space: nowrap; }
+.blackoutZeroTag.green { color: var(--bo-green); }
+.blackoutEngineNote { display: grid; grid-template-columns: minmax(240px, .55fr) minmax(0, 1.45fr); gap: 28px; padding: 18px 20px; border: 1px solid var(--bo-line); background: #080808; margin-bottom: 18px; }
+.blackoutEngineNote span { color: var(--bo-red); font: 800 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .09em; }
+.blackoutEngineNote p { margin: 0; color: var(--bo-muted); font: 500 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* Re-theme the real Blackpay V2 payroll engine without changing its logic. */
+.blackoutPayrollRuntime .blackpayAppShell { display: block; width: 100%; min-height: 0; padding: 0; margin: 0; background: transparent; color: var(--bo-text); }
+.blackoutPayrollRuntime .appSidebar { display: none; }
+.blackoutPayrollRuntime .appMain { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--bo-text); }
+.blackoutPayrollRuntime .appTopbar {
+  position: relative;
+  top: auto;
+  min-height: 86px;
+  padding: 18px 20px;
+  margin: 0 0 16px;
+  border: 1px solid var(--bo-line);
+  background: #090909;
+  color: var(--bo-text);
+}
+.blackoutPayrollRuntime .topbarTitle h1 { color: var(--bo-text); font-family: "Arial Narrow", Arial, sans-serif; text-transform: uppercase; font-weight: 950; }
+.blackoutPayrollRuntime .topbarTitle p,
+.blackoutPayrollRuntime .eyebrow { color: var(--bo-muted); }
+.blackoutPayrollRuntime .network,
+.blackoutPayrollRuntime .walletConnected { border-color: var(--bo-line-strong); background: #0d0d0d; color: var(--bo-muted); border-radius: 0; }
+.blackoutPayrollRuntime .primary,
+.blackoutPayrollRuntime .secondary { border-radius: 0; min-height: 42px; text-transform: uppercase; font: 800 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+.blackoutPayrollRuntime .primary { background: var(--bo-text); color: #070707; border-color: var(--bo-text); }
+.blackoutPayrollRuntime .primary:hover:not(:disabled) { background: #fff; }
+.blackoutPayrollRuntime .secondary { background: #0a0a0a; color: var(--bo-text); border-color: var(--bo-line-strong); }
+.blackoutPayrollRuntime .secondary:hover:not(:disabled) { background: #131313; }
+.blackoutPayrollRuntime .pageCanvas { min-height: 0; padding: 0; }
+.blackoutPayrollRuntime .singleWorkspace { max-width: none; padding: 0; margin: 0; }
+.blackoutPayrollRuntime .panel,
+.blackoutPayrollRuntime .primaryPanel { padding: clamp(24px, 3vw, 42px); border-radius: 0; border: 1px solid var(--bo-line); background: #090909; box-shadow: none; color: var(--bo-text); }
+.blackoutPayrollRuntime .panelHeader { border-color: var(--bo-line); }
+.blackoutPayrollRuntime .panelHeader h3,
+.blackoutPayrollRuntime .panel h3 { color: var(--bo-text); font-family: "Arial Narrow", Arial, sans-serif; font-weight: 950; text-transform: uppercase; letter-spacing: -.035em; }
+.blackoutPayrollRuntime .panel > p { color: var(--bo-muted); }
+.blackoutPayrollRuntime .sectionKicker { color: var(--bo-red); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .17em; }
+.blackoutPayrollRuntime .securityTag { border-radius: 0; background: rgba(255,90,95,.07); color: var(--bo-red); border: 1px solid rgba(255,90,95,.35); }
+.blackoutPayrollRuntime label { color: #9c9991; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+.blackoutPayrollRuntime input,
+.blackoutPayrollRuntime select,
+.blackoutPayrollRuntime textarea { border-radius: 0; border-color: var(--bo-line-strong); background: #050505; color: var(--bo-text); caret-color: var(--bo-red); }
+.blackoutPayrollRuntime input:focus,
+.blackoutPayrollRuntime select:focus,
+.blackoutPayrollRuntime textarea:focus { outline: 1px solid var(--bo-red); border-color: var(--bo-red); }
+.blackoutPayrollRuntime input::placeholder,
+.blackoutPayrollRuntime textarea::placeholder { color: #57554f; }
+.blackoutPayrollRuntime .professionalFlow { border: 1px solid var(--bo-line); background: #070707; }
+.blackoutPayrollRuntime .professionalFlow span { color: var(--bo-muted); }
+.blackoutPayrollRuntime .professionalFlow b { color: var(--bo-red); }
+.blackoutPayrollRuntime .professionalFlow i { color: #363636; }
+.blackoutPayrollRuntime .actionBar { border-color: var(--bo-line); color: var(--bo-muted); }
+.blackoutPayrollRuntime .message { border-radius: 0; box-shadow: none; border-color: var(--bo-line-strong); background: #0c0c0c; color: var(--bo-text); }
+.blackoutPayrollRuntime .message.success { border-color: rgba(39,184,138,.35); background: rgba(39,184,138,.07); color: #9de4cf; }
+.blackoutPayrollRuntime .message.error { border-color: rgba(255,90,95,.45); background: rgba(255,90,95,.08); color: #ffb2b5; }
+.blackoutPayrollRuntime .message.warning { border-color: rgba(255,191,0,.4); background: rgba(255,191,0,.06); color: #e9c45a; }
+.blackoutPayrollRuntime .polishedFooter { display: none; }
+.blackoutPayrollRuntime .routeLoading { background: #090909; color: var(--bo-text); border: 1px solid var(--bo-line); }
+.blackoutPayrollRuntime .routeLoading .eyebrow { color: var(--bo-red); }
+
+.blackoutProtection { padding-top: 74px; padding-bottom: 88px; border-top: 1px solid var(--bo-line); }
+.blackoutProtection blockquote { margin: 28px 0; padding: 28px 32px; border: 1px solid var(--bo-line); border-left: 2px solid var(--bo-red); background: #090909; color: var(--bo-text); font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: clamp(18px, 2vw, 25px); line-height: 1.5; }
+.blackoutProtectionGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--bo-line); border-left: 1px solid var(--bo-line); }
+.blackoutProtectionGrid article { min-height: 170px; padding: 22px; border-right: 1px solid var(--bo-line); border-bottom: 1px solid var(--bo-line); background: #090909; }
+.blackoutProtectionGrid article > div { display: flex; justify-content: space-between; gap: 14px; align-items: center; }
+.blackoutProtectionGrid strong { font: 900 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.blackoutProtectionGrid b { padding: 6px 8px; border: 1px solid rgba(39,184,138,.35); color: var(--bo-green); background: rgba(39,184,138,.05); font: 800 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.blackoutProtectionGrid p { margin: 28px 0 0; max-width: 560px; color: var(--bo-muted); font: 500 11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.blackoutFinalStatement { padding-top: 82px; padding-bottom: 82px; border-top: 1px solid var(--bo-line); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 52px; }
+.blackoutFinalStatement h2 { margin: 0; max-width: 980px; font-size: clamp(48px, 7vw, 108px); line-height: .86; font-weight: 950; }
+.blackoutFinalStatement p { max-width: 760px; margin: 28px 0 0; color: var(--bo-muted); font-size: 15px; line-height: 1.6; }
+
+.blackoutFooter { min-height: 88px; padding-top: 22px; padding-bottom: 22px; border-top: 1px solid var(--bo-line); display: flex; align-items: center; justify-content: space-between; gap: 28px; color: #65635e; font: 700 9px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.blackoutFooter > div { display: flex; gap: 20px; flex-wrap: wrap; }
+.blackoutFooter a { text-decoration: none; }
+.blackoutFooter a:hover { color: var(--bo-text); }
+
+@media (max-width: 1060px) {
+  .blackoutHeader { grid-template-columns: 1fr auto; }
+  .blackoutNav { grid-column: 1 / -1; order: 3; justify-content: flex-start; overflow-x: auto; border-top: 1px solid var(--bo-line); }
+  .blackoutNav a { min-height: 52px; }
+  .blackoutMetricGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .blackoutFinalStatement { grid-template-columns: 1fr; gap: 28px; }
+}
+
+@media (max-width: 760px) {
+  .blackoutStatusStrip { display: none; }
+  .blackoutHeader { padding: 14px 18px 0; gap: 14px; }
+  .blackoutNavAction { display: none; }
+  .blackoutHeroInner,
+  .blackoutOverview,
+  .blackoutWorkspace,
+  .blackoutProtection,
+  .blackoutFinalStatement,
+  .blackoutFooter { padding-left: 18px; padding-right: 18px; }
+  .blackoutHeroInner { padding-top: 42px; padding-bottom: 48px; }
+  .blackoutHeroMeta { align-items: flex-start; flex-direction: column; }
+  .blackoutHeroCopy h1 { font-size: clamp(52px, 17vw, 86px); }
+  .blackoutThesisBar a { width: 100%; margin-left: 0; }
+  .blackoutMetricGrid,
+  .blackoutProtectionGrid { grid-template-columns: 1fr; }
+  .blackoutSectionHeader { align-items: flex-start; flex-direction: column; }
+  .blackoutEngineNote { grid-template-columns: 1fr; }
+  .blackoutZeroTag { white-space: normal; }
+  .blackoutPayrollRuntime .appTopbar { align-items: flex-start; flex-direction: column; }
+  .blackoutFinalStatement h2 { font-size: clamp(44px, 14vw, 74px); }
+  .blackoutFooter { align-items: flex-start; flex-direction: column; }
+}
