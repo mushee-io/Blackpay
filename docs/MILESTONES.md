@@ -2,300 +2,232 @@
 
 Status definitions:
 
-- **CODED**: implementation is present in `main`.
-- **VERIFY**: code compiles/builds but still requires live Midnight Preview validation.
-- **LIVE**: verified against the configured Midnight environment. Nothing is marked LIVE without observed evidence.
+- **CODED** — implementation is present in `main`.
+- **VERIFY** — implementation/build checks pass but still requires a real Midnight Preview transaction path.
+- **LIVE** — observed end-to-end against the target Midnight environment. Nothing is called LIVE from code or CI alone.
 
-## Current CI evidence
+## Protocol-v2 release target
 
-Observed on GitHub Actions after the M7–M12 build:
+Blackpay protocol v2 replaces the old arbitrary transaction-hash finalization model with contract-bound `REGISTER -> APPROVE -> FUND -> CLAIM` settlement.
 
-```text
-Node dependency install       PASS
-TypeScript                    PASS
-Privacy scanner               PASS
-Next.js production build      PASS
-Compact toolchain selection   PASS (0.31.1)
-Compact payroll compile       PASS
-```
+The release build targets:
 
-The repository is therefore **build-clean**, but it is not yet marked LIVE because wallet signing, deployment, shielded settlement, and proof/disclosure transactions still require an observed Midnight Preview run.
+- Compact toolchain `0.31.1`
+- Compact language `0.23`
+- Compact runtime `0.16.0`
+- MidnightJS `4.1.1`
+- DApp connector API `4.0.1`
+- ledger-v8 `8.1.0`
+- Node.js `22.x`
+- Midnight `preview`
+
+CI has three required jobs on the same commit: `app`, `compact`, and `live-assets`.
 
 ## Milestone 1 — Foundation + Midnight environment
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- Next.js + strict TypeScript application
-- MidnightJS 4.1.1 dependency family
-- DApp connector API 4.0.1 target
-- Compact runtime 0.16.0 and ledger-v8 8.1.0 pins
-- Preview/Preprod environment validation
-- injected Midnight wallet discovery + connection
-- wallet network mismatch rejection
-- proof server 8.1.0 Docker service on localhost:6300
-- public-safe health endpoint
-- privacy scanner
-- fail-closed contract gateway
+- Next.js + strict TypeScript
+- injected Lace/Midnight wallet discovery and connection
+- wallet network/identity mismatch rejection
+- Lace-provided node/indexer/websocket configuration
+- wallet-delegated proving provider
+- fail-closed gateway and private-state initialization
+- browser WebAssembly build path for generated Compact bindings
+- privacy scanner and release checks
 
-Verified:
-- app typecheck/build PASS
-- privacy scan PASS
-- Compact 0.31.1 selection PASS
-- Compact compile PASS
-
-Remaining live verification:
-- real Preview wallet connection
-- live Preview node/indexer/proof-server configuration
+Live requirement:
+- connect Lace Preview from the deployed HTTPS application.
 
 ## Milestone 2 — Employer payroll workspace
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- admin identity derived from a private secret witness
-- one-time workspace creation circuit
-- workspace ID and currency label hashed before submission
-- public frequency configuration
-- employer workspace UI action
+- private admin authority
+- one-time workspace creation
+- hashed workspace/currency identifiers
+- payroll frequency
+- live employer action through generated Compact bindings
 
-Remaining live verification:
-- generated binding adapter
-- Preview workspace transaction
+Live requirement:
+- execute workspace creation against the newly deployed v2 Preview contract.
 
 ## Milestone 3 — Private employee registry
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- salary held in private witness record
-- payout destination represented by a commitment
-- 32-byte private salt
+- private salary, payout commitment, shielded payout coin key, and salt
 - public employee commitment only
-- active/inactive lifecycle
-- revision counter
-- volatile in-memory witness handling
+- active/inactive lifecycle and revision counter
+- encrypted Midnight Level private-state persistence
 - add/update/remove circuits
+- wallet-bound employee access validation
 
-Remaining live verification:
-- generated binding adapter
-- Midnight private-state-provider migration
-- Preview proof/transaction
-- employee witness handoff/recovery design
+Live requirement:
+- register a real employee and confirm the public commitment without salary/payout leakage.
 
-## Milestone 4 — Confidential payroll contract
+## Milestone 4 — Confidential pay-run commitments
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- private total payroll witness
-- private payments root witness
-- pay-run commitment
-- draft -> approved -> executed lifecycle
-- duplicate pay-run prevention
-- employee-count invariant
-- transaction commitment field
-- create/approve/finalize UI workflow
+- private payroll total and payment-root witness
+- token color included in v2 pay-run commitment
+- deterministic ordered payment-claim root
+- per-employee payment claim registration
+- approval blocked until all expected claims exist and the registered root equals the private committed root
+- duplicate claim/pay-run prevention
+- Draft -> Approved -> Executed lifecycle
 
-Verified:
-- Compact 0.31.1 compile PASS
+Live requirement:
+- create and approve a real v2 pay run on Preview.
 
-Remaining live verification:
-- Preview deployment and state transitions
-
-## Milestone 5 — Private salary payments
+## Milestone 5 — Contract-bound private salary settlement
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- connected-wallet `makeTransfer` flow
-- shielded output per employee
-- positive amount/recipient validation
-- wallet transaction submission
-- transaction ID commitment for pay-run finalization
-- no fake transaction fallback
+- **legacy `finalizePayRun(transactionCommitment)` removed**
+- per-employee `PaymentClaimStatus`: Registered / Funded / Settled
+- exact amount + token + fixed payout-key commitment
+- employer funding accepted into shielded contract custody with `receiveShielded`
+- commitment-tree position capture from the wallet-selected indexer
+- encrypted funded-coin capability
+- employee claim with `sendShielded` to the precommitted payout key
+- one-time settlement enforcement
+- pay run becomes Executed only after every employee claim settles
+- idempotent employer funding retry display
 
-Important integrity boundary:
-- the Compact contract does not yet cryptographically prove that the submitted wallet transaction exactly matches the private pay-run commitment. See `SECURITY.md`.
-
-Remaining live verification:
-- supported payroll token on Preview
-- funded employer wallet
-- multi-recipient shielded transfer
-- stronger settlement-to-pay-run binding
+Live requirement:
+- fund a real claim from Lace and have the bound employee Lace wallet claim it once; verify a second claim attempt is rejected.
 
 ## Milestone 6 — Proof of salary / income
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- `proveIncomeAtLeast` circuit
-- private record recomputed against employee commitment
-- threshold comparison inside the circuit
-- exact salary excluded from proof ledger state
-- proof generation UI
+- `proveIncomeAtLeast`
+- private employee witness recomputed against live commitment
+- threshold comparison inside Compact
+- exact salary excluded from public proof state
 
-Verified:
-- circuit compiles with Compact 0.31.1
-
-Remaining live verification:
-- positive threshold proof
-- negative threshold rejection
-- independent verifier flow
+Live requirement:
+- positive proof and negative-threshold rejection on Preview.
 
 ## Milestone 7 — Selective disclosure
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- `DisclosureKind` model
-- verifier-scoped income-threshold disclosure
-- verifier-scoped active-employment disclosure
+- verifier-scoped income/employment disclosure
 - expiry metadata
 - nonce-derived disclosure IDs
-- revocation circuit
-- TypeScript gateway methods
-- disclosure creation/revocation UI
-- exact salary excluded from disclosure state
+- revocation
+- disclosure UI and SDK methods
 
-Verified:
-- selective-disclosure circuits compile with Compact 0.31.1
-- TypeScript/app build PASS
-
-Remaining live verification:
-- generated binding adapter methods
-- positive/negative Preview disclosure tests
-- authoritative expiry enforcement in verifier flow
-- revoked-disclosure verification test
+Remaining protocol hardening:
+- standalone verifier logic must enforce authoritative ledger time against `expiresAt`; until then integrators must reject expired disclosures themselves.
 
 ## Milestone 8 — Employer dashboard
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- employer product navigation
-- workspace/people/pay-run/proof controls
-- selective-disclosure controls
-- deployment-readiness state
-- fail-closed contract configuration display
+- workspace/employee/pay-run/proof controls
+- Lace shielded-balance token selection
+- v2 claim registration, approval, and funding controls
+- explicit v2 runtime status and fail-closed lockout
+- no demo settlement path
 
-Verified:
-- Next.js production build PASS
-
-Remaining live verification:
-- hydrate counts/state from Midnight public data provider
-- Preview indexer refresh/reconnect tests
-- large-dataset pagination
+Live requirement:
+- exercise the full employer path after v2 deployment.
 
 ## Milestone 9 — Employee portal + private payslips
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- private payslip domain model
-- volatile in-memory payslip store
-- duplicate protection per pay-run/transaction pair
-- employee-reference scoped lookup
-- gross/net/currency/period/status display
-- real settlement transaction reference requirement
-- no localStorage/sessionStorage persistence
+- encrypted private payslip persistence
+- v3 AES-GCM employee access packages
+- payout-address + payout-coin-key wallet binding
+- package expiry/authenticated metadata
+- live employee/claim commitment verification on import
+- exact per-claim lifecycle status
+- `CLAIM SHIELDED SALARY` action for funded claims
+- monotonic Pending -> Approved -> Funded -> Paid state
 
-Verified:
-- TypeScript/app build PASS
-- privacy scanner PASS
+Live requirement:
+- export a fresh v3 package after funding, import it with the bound employee Lace wallet, and execute the real claim.
 
-Remaining live verification:
-- automatic payslip issuance from successful M5 settlement
-- encrypted Midnight private-state persistence
-- employee-owned recovery/access model
-- finalized status binding to on-chain pay-run lifecycle
-
-## Milestone 10 — Security + live release gate
+## Milestone 10 — Security + release gate
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- `npm run release:check`
-- `npm run live:verify`
-- deployment-env validation
-- Compact artifact validation
-- proof-server/indexer/node reachability preflight
-- explicit separation between infrastructure readiness and live payroll verification
-- privacy scanner and fail-closed gateway retained
+- fail-closed protocol-version gate (`protocolVersion == 2`)
+- encrypted private-state backup/recovery
+- wallet session integrity checks
+- production WebAssembly/Compact build pipeline
+- exact circuit proving-asset validation
+- no public node/indexer/prover configuration duplication
+- GitHub `app`, `compact`, and `live-assets` release jobs
 
-Verified:
-- app CI PASS
-- Compact CI PASS
-
-Remaining live verification:
-- Preview wallet signing
-- contract deployment provenance
-- full private payroll test
+Live requirement:
+- deploy a **new** v2 contract. A v1 deployment cannot be upgraded in place.
 
 ## Milestone 11 — Compliance + audit controls
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- redacted public audit bundle schema
-- strict 32-byte proof/disclosure/transaction reference validation
-- duplicate-reference removal
-- embedded privacy statement
-- salary, recipient, salt and witness fields excluded by type design
-- audit bundle UI
+- redacted public audit bundle
+- proof/disclosure/commitment validation
+- salary, payout, salt, witness, and funded-coin capability fields excluded
 
-Verified:
-- TypeScript/app build PASS
-- privacy scanner PASS
-
-Remaining live verification:
-- independent indexer verifier lookup
-- signed/exportable audit envelope
-- auditor authorization policy
+Further product work:
+- independent public verifier/read flow and signed auditor-facing export are optional follow-on features, not settlement blockers.
 
 ## Milestone 12 — API + SDK integrations
 
 **Status: CODED / VERIFY**
 
 Implemented:
-- typed `BlackpaySdk` façade over the real contract gateway
-- SDK calls for workspace, employee, pay-run, proof and selective disclosure
-- `GET /api/v1/status` public-safe readiness endpoint
+- typed protocol-v2 `BlackpaySdk`
+- create/approve/fund/claim settlement methods
+- public-safe `GET /api/v1/status`
+- API status explicitly reports `protocolVersion: 2`
+- Lace-managed infrastructure status
 - no simulated SDK gateway
-- integration/privacy documentation
 
-Verified:
-- TypeScript/app build PASS
-
-Remaining live verification:
-- generated Compact adapter registration
-- public verifier/read SDK
-- versioned package publishing
-- partner integration test on Preview
+Further product work:
+- package publishing and external partner integration testing after Preview validation.
 
 ## Definition of LIVE
 
-Milestones move from **CODED / VERIFY** to **LIVE** only when all relevant checks are observed:
+Blackpay protocol v2 may be called LIVE only after all of the following are observed:
 
 ```text
-App typecheck/build             PASS
-Privacy scan                    PASS
-Compact 0.31.1 compile          PASS
-Proof server 8.1.0              PASS
-Preview wallet                  PASS
-Preview node/indexer            PASS
-Contract deployment             PASS
-Workspace transaction           PASS
-Employee private commit         PASS
-Pay-run lifecycle               PASS
-Shielded payroll transfer       PASS
-Income >= threshold proof       PASS
-Scoped disclosure               PASS
-Disclosure revocation           PASS
-Disclosure expiry enforcement   PASS
-Employee private payslip        PASS
-Audit verifier lookup           PASS
-SDK Preview integration         PASS
-Public salary leakage           NONE
-Fake fallback                   NONE
+Same-commit app CI                 PASS
+Same-commit Compact 0.31.1 CI      PASS
+Same-commit live-assets/Next build PASS
+Lace Preview connection            PASS
+New protocol-v2 deployment         PASS
+protocolVersion == 2               PASS
+Workspace transaction              PASS
+Employee private commitment        PASS
+Pay-run claim registration         PASS
+Pay-run root-bound approval        PASS
+Contract claim funding             PASS
+Fresh v3 employee package          PASS
+Bound employee wallet import       PASS
+One-time shielded salary claim     PASS
+Duplicate claim rejection          PASS
+Income threshold proof             PASS
+Public salary leakage              NONE
+Fake fallback                      NONE
 ```
+
+Selective-disclosure expiry should be treated separately: expiry metadata exists today, but fully trustless authoritative-time verification remains additional hardening before advertising that verifier subsystem as fully trustless.
