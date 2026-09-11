@@ -5,7 +5,13 @@ import {
   clearPayrollContractGateway,
   registerPayrollContractGateway,
   type PayrollContractGateway,
+  type PrivateEmployeeWitness,
 } from "./contract-client";
+import {
+  decryptEmployeeAccessPayload,
+  encryptEmployeeAccessPayload,
+  type EmployeeAccessEnvelope,
+} from "./employee-access";
 import {
   createCompiledBlackpayContract,
   type GeneratedBlackpayModule,
@@ -15,13 +21,20 @@ import {
   BLACKPAY_PRIVATE_STATE_ID,
   activateEmployeeWitness,
   createInitialBlackpayPrivateState,
+  employeeWitnessFromRecord,
+  listPortalPayslips,
+  setPrivateWorkspaceCurrency,
+  type BlackpayPortalPayslipRecord,
   type BlackpayPrivateState,
+  updatePortalPayRunStatus,
   upsertEmployeeWitness,
   upsertPayRunWitness,
+  upsertPortalPayslip,
 } from "./private-state";
 import { buildBlackpayProviders, type BlackpayProviders, type BlackpayCircuitId } from "./providers";
 import type { ConnectedWallet } from "./wallet";
-import type { PayrollFrequency } from "../payroll/types";
+import { payoutCommitment } from "../payroll/commitments";
+import type { PayrollFrequency, PrivatePayrollPayment } from "../payroll/types";
 
 export type BlackpayRuntimeRole = "admin" | "employee";
 export type BlackpayRuntimeStatus = {
@@ -29,6 +42,13 @@ export type BlackpayRuntimeStatus = {
   contractAddress?: string;
   role?: BlackpayRuntimeRole;
   networkId?: string;
+};
+
+export type EmployeePortalSnapshot = {
+  employeeIdHex: string;
+  salaryMinor: bigint;
+  status: "active" | "inactive";
+  payslips: BlackpayPortalPayslipRecord[];
 };
 
 type LiveRuntime = {
@@ -206,6 +226,7 @@ function gatewayFor(current: LiveRuntime): PayrollContractGateway {
       await confirmLedger(current, "pay-run approval", (ledger) =>
         ledger.payRuns.member(payRunId) && ledger.payRuns.lookup(payRunId).status === current.generated.PayRunStatus.Approved,
       );
+      await setPrivateState(current, updatePortalPayRunStatus(await getPrivateState(current), payRunIdHex, "approved"));
       return { transactionId: result.public.txId };
     },
 
@@ -219,6 +240,7 @@ function gatewayFor(current: LiveRuntime): PayrollContractGateway {
         ledger.payRuns.lookup(payRunId).status === current.generated.PayRunStatus.Executed &&
         equalBytes(ledger.payRuns.lookup(payRunId).transactionCommitment, settlement),
       );
+      await setPrivateState(current, updatePortalPayRunStatus(await getPrivateState(current), input.payRunIdHex, "paid"));
       return { transactionId: result.public.txId };
     },
 
@@ -364,6 +386,219 @@ export function getBlackpayRuntimeStatus(): BlackpayRuntimeStatus {
 
 export async function readBlackpayLedger(): Promise<BlackpayLedgerView> {
   return confirmLedger(requireRuntime(), "ledger read", () => true);
+}
+
+export async function rememberPrivateWorkspaceCurrency(currencyCode: string): Promise<void> {
+  const current = requireRuntime();
+  requireAdmin(current);
+  await setPrivateState(current, setPrivateWorkspaceCurrency(await getPrivateState(current), currencyCode));
+}
+
+export async function recordPortalPayslipsForPayRun(params: {
+  payRunIdHex: string;
+  period: number;
+  payments: PrivatePayrollPayment[];
+  currencyCode?: string;
+}): Promise<void> {
+  const current = requireRuntime();
+  requireAdmin(current);
+  let state = await getPrivateState(current);
+  const currencyCode = (params.currencyCode || state.workspaceCurrencyCode || "TOKEN").trim().toUpperCase();
+  for (const payment of params.payments) {
+    const employee = state.employeeRecords?.[payment.employeeId];
+    if (!employee) throw new Error(`Encrypted employee witness is missing for ${payment.employeeId}`);
+    const recipientCommitment = await payoutCommitment(payment.shieldedRecipient);
+    if (recipientCommitment !== bytesToHex(employee.payoutCommitment)) {
+      throw new Error("Pay-run recipient does not match the employee wallet bound during registration");
+    }
+    state = upsertPortalPayslip(state, {
+      employeeIdHex: payment.employeeId,
+      payRunIdHex: params.payRunIdHex,
+      period: params.period,
+      grossMinor: payment.salaryMinor,
+      netMinor: payment.salaryMinor,
+      currencyCode,
+      status: "pending",
+      createdAt: Date.now(),
+    });
+  }
+  await setPrivateState(current, state);
+}
+
+export async function markPortalPayRunPaid(payRunIdHex: string, paymentTransactionId: string): Promise<void> {
+  const current = requireRuntime();
+  requireAdmin(current);
+  if (!paymentTransactionId.trim()) throw new Error("Settlement transaction ID is required");
+  await setPrivateState(
+    current,
+    updatePortalPayRunStatus(await getPrivateState(current), payRunIdHex, "paid", paymentTransactionId.trim()),
+  );
+}
+
+export async function issuePortalPayslip(params: {
+  employeeIdHex: string;
+  payRunIdHex: string;
+  period: number;
+  grossMinor: bigint;
+  netMinor: bigint;
+  currencyCode: string;
+  paymentTransactionId?: string;
+}): Promise<BlackpayPortalPayslipRecord> {
+  const current = requireRuntime();
+  requireAdmin(current);
+  const employeeId = hexToBytes32(params.employeeIdHex, "employee id");
+  const payRunId = hexToBytes32(params.payRunIdHex, "pay-run id");
+  const ledger = await confirmLedger(current, "private payslip issuance", (value) =>
+    value.employees.member(employeeId) && value.payRuns.member(payRunId),
+  );
+  const payRun = ledger.payRuns.lookup(payRunId);
+  const status: BlackpayPortalPayslipRecord["status"] =
+    payRun.status === current.generated.PayRunStatus.Executed
+      ? "paid"
+      : payRun.status === current.generated.PayRunStatus.Approved
+        ? "approved"
+        : "pending";
+  if (status === "paid" && !params.paymentTransactionId?.trim()) {
+    throw new Error("A paid payslip requires the real settlement transaction ID");
+  }
+  const payslip: BlackpayPortalPayslipRecord = {
+    employeeIdHex: params.employeeIdHex,
+    payRunIdHex: params.payRunIdHex,
+    period: params.period,
+    grossMinor: params.grossMinor,
+    netMinor: params.netMinor,
+    currencyCode: params.currencyCode,
+    status,
+    ...(params.paymentTransactionId?.trim() ? { paymentTransactionId: params.paymentTransactionId.trim() } : {}),
+    createdAt: Date.now(),
+  };
+  await setPrivateState(current, upsertPortalPayslip(await getPrivateState(current), payslip));
+  return payslip;
+}
+
+export async function exportEmployeeAccessPackage(params: {
+  employeeIdHex: string;
+  accessPassword: string;
+}): Promise<EmployeeAccessEnvelope> {
+  const current = requireRuntime();
+  requireAdmin(current);
+  const state = await getPrivateState(current);
+  const employee = state.employeeRecords?.[params.employeeIdHex];
+  if (!employee) throw new Error("No encrypted employee record exists for this employee identifier");
+  const employeeId = hexToBytes32(params.employeeIdHex, "employee id");
+  const ledger = await confirmLedger(current, "employee access export", (value) => value.employees.member(employeeId));
+  const publicEntry = ledger.employees.lookup(employeeId);
+  const expected = current.generated.pureCircuits.employeeCommitment(
+    employeeId,
+    employee.salaryMinor,
+    employee.payoutCommitment,
+    employee.salt,
+  );
+  if (!equalBytes(publicEntry.commitment, expected)) {
+    throw new Error("Encrypted employee record does not match the live Blackpay contract commitment");
+  }
+
+  return encryptEmployeeAccessPayload({
+    networkId: current.wallet.networkId,
+    contractAddress: String(current.contractAddress),
+    password: params.accessPassword,
+    payload: {
+      version: "blackpay-employee-access-v1",
+      employeeIdHex: params.employeeIdHex,
+      salaryMinor: employee.salaryMinor.toString(),
+      payoutCommitmentHex: bytesToHex(employee.payoutCommitment),
+      saltHex: bytesToHex(employee.salt),
+      payslips: listPortalPayslips(state, params.employeeIdHex).map((payslip) => ({
+        payRunIdHex: payslip.payRunIdHex,
+        period: payslip.period,
+        grossMinor: payslip.grossMinor.toString(),
+        netMinor: payslip.netMinor.toString(),
+        currencyCode: payslip.currencyCode,
+        status: payslip.status,
+        ...(payslip.paymentTransactionId ? { paymentTransactionId: payslip.paymentTransactionId } : {}),
+        createdAt: payslip.createdAt,
+      })),
+    },
+  });
+}
+
+export async function importEmployeeAccessPackage(
+  envelopeValue: unknown,
+  accessPassword: string,
+): Promise<EmployeePortalSnapshot> {
+  const current = requireRuntime();
+  const { envelope, payload } = await decryptEmployeeAccessPayload(envelopeValue, accessPassword);
+  if (envelope.networkId !== current.wallet.networkId) throw new Error("Employee access package belongs to a different Midnight network");
+  if (envelope.contractAddress !== String(current.contractAddress)) throw new Error("Employee access package belongs to a different Blackpay contract");
+
+  const connectedPayoutCommitment = await payoutCommitment(current.wallet.addresses.shieldedAddress);
+  if (connectedPayoutCommitment !== payload.payoutCommitmentHex) {
+    throw new Error("Connected Lace wallet is not the employee wallet bound to this access package");
+  }
+
+  const witness: PrivateEmployeeWitness = {
+    salaryMinor: BigInt(payload.salaryMinor),
+    payoutCommitmentHex: payload.payoutCommitmentHex,
+    saltHex: payload.saltHex,
+  };
+  const employeeId = hexToBytes32(payload.employeeIdHex, "employee id");
+  const expected = current.generated.pureCircuits.employeeCommitment(
+    employeeId,
+    witness.salaryMinor,
+    hexToBytes32(witness.payoutCommitmentHex, "payout commitment"),
+    hexToBytes32(witness.saltHex, "employee salt"),
+  );
+  const ledger = await confirmLedger(current, "employee access import", (value) => value.employees.member(employeeId));
+  if (!equalBytes(ledger.employees.lookup(employeeId).commitment, expected)) {
+    throw new Error("Employee access package does not match the live employee commitment");
+  }
+
+  let state = upsertEmployeeWitness(await getPrivateState(current), payload.employeeIdHex, witness);
+  for (const payslip of payload.payslips) {
+    state = upsertPortalPayslip(state, {
+      employeeIdHex: payload.employeeIdHex,
+      payRunIdHex: payslip.payRunIdHex,
+      period: payslip.period,
+      grossMinor: BigInt(payslip.grossMinor),
+      netMinor: BigInt(payslip.netMinor),
+      currencyCode: payslip.currencyCode,
+      status: payslip.status,
+      ...(payslip.paymentTransactionId ? { paymentTransactionId: payslip.paymentTransactionId } : {}),
+      createdAt: payslip.createdAt,
+    });
+  }
+  await setPrivateState(current, state);
+  return getEmployeePortalSnapshot();
+}
+
+export async function getEmployeePortalSnapshot(): Promise<EmployeePortalSnapshot> {
+  const current = requireRuntime();
+  const state = await getPrivateState(current);
+  const connectedPayoutCommitment = await payoutCommitment(current.wallet.addresses.shieldedAddress);
+  const match = Object.entries(state.employeeRecords ?? {}).find(
+    ([, employee]) => bytesToHex(employee.payoutCommitment) === connectedPayoutCommitment,
+  );
+  if (!match) {
+    throw new Error("No employee access record is installed for this Lace wallet. Import the encrypted package from your employer first.");
+  }
+  const [employeeIdHex, employee] = match;
+  const employeeId = hexToBytes32(employeeIdHex, "employee id");
+  const ledger = await confirmLedger(current, "employee portal read", (value) => value.employees.member(employeeId));
+  const status = ledger.employees.lookup(employeeId).status === current.generated.EmployeeStatus.Active ? "active" : "inactive";
+  return {
+    employeeIdHex,
+    salaryMinor: employee.salaryMinor,
+    status,
+    payslips: listPortalPayslips(state, employeeIdHex),
+  };
+}
+
+export async function getEmployeePortalWitness(): Promise<{ employeeIdHex: string; witness: PrivateEmployeeWitness }> {
+  const current = requireRuntime();
+  const snapshot = await getEmployeePortalSnapshot();
+  const employee = (await getPrivateState(current)).employeeRecords?.[snapshot.employeeIdHex];
+  if (!employee) throw new Error("Employee private witness is unavailable");
+  return { employeeIdHex: snapshot.employeeIdHex, witness: employeeWitnessFromRecord(employee) };
 }
 
 export async function exportBlackpayEncryptedBackup(exportPassword: string) {
