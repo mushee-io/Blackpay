@@ -1,6 +1,6 @@
 {
   "name": "blackpay",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "type": "module",
   "engines": {
@@ -20,10 +20,12 @@
     "privacy:check": "node scripts/check-private-leaks.mjs",
     "live:verify": "node scripts/verify-live.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=high",
-    "release:check": "npm run security:audit && npm run check && npm run build:live",
+    "midnight:versions": "npm ls @midnight-ntwrk/compact-js @midnight-ntwrk/compact-runtime @midnight-ntwrk/onchain-runtime-v3 @midnight-ntwrk/platform-js @midnight-ntwrk/ledger-v8 --all",
+    "release:check": "npm run security:audit && npm run check && npm run midnight:versions && npm run build:live",
     "check": "npm run typecheck && npm run privacy:check"
   },
   "dependencies": {
+    "@midnight-ntwrk/compact-js": "2.5.1",
     "@midnight-ntwrk/compact-runtime": "0.16.0",
     "@midnight-ntwrk/dapp-connector-api": "4.0.1",
     "@midnight-ntwrk/ledger-v8": "8.1.0",
@@ -37,6 +39,8 @@
     "@midnight-ntwrk/midnight-js-protocol": "4.1.1",
     "@midnight-ntwrk/midnight-js-types": "4.1.1",
     "@midnight-ntwrk/midnight-js-utils": "4.1.1",
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0",
+    "@midnight-ntwrk/platform-js": "2.2.4",
     "@midnight-ntwrk/wallet-sdk-address-format": "3.1.2",
     "buffer": "6.0.3",
     "next": "15.5.25",
@@ -50,8 +54,11 @@
     "typescript": "5.9.2"
   },
   "overrides": {
+    "@midnight-ntwrk/compact-js": "2.5.1",
+    "@midnight-ntwrk/compact-runtime": "0.16.0",
     "@midnight-ntwrk/ledger-v8": "8.1.0",
     "@midnight-ntwrk/onchain-runtime-v3": "3.0.0",
+    "@midnight-ntwrk/platform-js": "2.2.4",
     "postcss": "8.5.23"
   }
 }
