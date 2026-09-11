@@ -16,12 +16,12 @@ compact compile contract/payroll.compact contract/build
 test -f contract/build/contract/index.js
 for circuit in \
   createWorkspace addEmployee updateEmployee removeEmployee \
-  createPayRun approvePayRun finalizePayRun proveIncomeAtLeast \
-  createIncomeDisclosure createEmploymentDisclosure revokeDisclosure
+  createPayRun registerPayRunPayment approvePayRun fundPayRunPayment claimPayRunPayment \
+  proveIncomeAtLeast createIncomeDisclosure createEmploymentDisclosure revokeDisclosure
 do
   test -f "contract/build/keys/${circuit}.prover"
   test -f "contract/build/keys/${circuit}.verifier"
   test -f "contract/build/zkir/${circuit}.bzkir"
 done
 
-echo "Blackpay Compact 0.31.x build assets verified."
+echo "Blackpay protocol v2 Compact 0.31.x build assets verified."
