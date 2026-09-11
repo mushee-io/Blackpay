@@ -51,7 +51,7 @@ export interface PayrollContractGateway {
   fundPayRunPayment(input: {
     payRunIdHex: string;
     employeeIdHex: string;
-  }): Promise<{ transactionId: string; claimIdHex: string; candidateMtIndices: string[] }>;
+  }): Promise<{ transactionId?: string; claimIdHex: string; candidateMtIndices: string[]; alreadyFunded: boolean }>;
 
   claimPayRunPayment(input: {
     payRunIdHex: string;
@@ -97,7 +97,6 @@ function emitGatewayReadiness(): void {
   for (const listener of gatewayListeners) listener(ready);
 }
 
-/** Register only a real generated-Compact/Midnight adapter. */
 export function registerPayrollContractGateway(gateway: PayrollContractGateway): void {
   activeGateway = gateway;
   emitGatewayReadiness();
