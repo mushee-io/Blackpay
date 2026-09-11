@@ -94,6 +94,13 @@ export function BlackpayApp() {
     return subscribePayrollContractGateway(setRuntimeReady);
   }, []);
 
+  useEffect(() => {
+    if (connected && runtimeReady) {
+      setFailure("");
+      setNotice(`Blackpay live runtime active on ${config.network}. Payroll actions are enabled.`);
+    }
+  }, [connected, runtimeReady, config.network]);
+
   async function run(action: () => Promise<void>) {
     setBusy(true);
     setFailure("");
@@ -111,7 +118,7 @@ export function BlackpayApp() {
     await run(async () => {
       const connection = await connectMidnightWallet(walletId);
       setConnected(connection);
-      setNotice(`Connected to ${connection.name} on ${config.network}. Deploy or join the Blackpay contract runtime before using payroll actions.`);
+      setNotice(`Connected to ${connection.name} on ${config.network}.`);
     });
   }
 
