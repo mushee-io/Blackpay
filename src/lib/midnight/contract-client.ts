@@ -51,7 +51,12 @@ export interface PayrollContractGateway {
   fundPayRunPayment(input: {
     payRunIdHex: string;
     employeeIdHex: string;
-  }): Promise<{ transactionId?: string; claimIdHex: string; candidateMtIndices: string[]; alreadyFunded: boolean }>;
+  }): Promise<{
+    transactionId: string;
+    claimIdHex: string;
+    candidateMtIndices: string[];
+    alreadyFunded?: boolean;
+  }>;
 
   claimPayRunPayment(input: {
     payRunIdHex: string;
@@ -92,19 +97,14 @@ export interface PayrollContractGateway {
 let activeGateway: PayrollContractGateway | undefined;
 const gatewayListeners = new Set<(ready: boolean) => void>();
 
-function emitGatewayReadiness(): void {
-  const ready = Boolean(activeGateway);
-  for (const listener of gatewayListeners) listener(ready);
-}
-
 export function registerPayrollContractGateway(gateway: PayrollContractGateway): void {
   activeGateway = gateway;
-  emitGatewayReadiness();
+  for (const listener of gatewayListeners) listener(true);
 }
 
 export function clearPayrollContractGateway(): void {
   activeGateway = undefined;
-  emitGatewayReadiness();
+  for (const listener of gatewayListeners) listener(false);
 }
 
 export function isPayrollContractGatewayReady(): boolean {
