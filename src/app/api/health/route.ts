@@ -6,12 +6,12 @@ export function GET() {
   return NextResponse.json({
     service: "blackpay",
     status: "ok",
+    protocolVersion: 2,
     network: config.network,
-    proofServerConfigured: Boolean(config.proofServerUrl),
-    indexerConfigured: Boolean(config.indexerUrl),
-    nodeConfigured: Boolean(config.nodeUrl),
-    contractConfigured: Boolean(config.contractAddress),
-    payrollTokenConfigured: Boolean(config.payrollTokenType),
+    midnightInfrastructure: "lace-wallet-managed",
+    canonicalContractConfigured: Boolean(config.contractAddress),
+    payrollTokenDefaultConfigured: Boolean(config.payrollTokenType),
+    settlement: "register-fund-claim",
     privacyMode: "fail-closed",
   });
 }
