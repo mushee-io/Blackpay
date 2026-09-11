@@ -2,16 +2,13 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { getPayrollContractGateway } from "@/lib/midnight/contract-client";
-import { hexToBytes32 } from "@/lib/midnight/bytes";
 import { assertEmployeeAccessEnvelope, type EmployeeAccessEnvelope } from "@/lib/midnight/employee-access";
-import { loadGeneratedBlackpayModule } from "@/lib/midnight/generated-contract";
 import {
   getEmployeePortalSnapshot,
   getEmployeePortalWitness,
   getBlackpayRuntimeStatus,
   importEmployeeAccessPackage,
   initializeBlackpayPreview,
-  readBlackpayLedger,
   type EmployeePortalSnapshot,
 } from "@/lib/midnight/live-runtime";
 import { getMidnightPublicConfig } from "@/lib/midnight/network";
@@ -89,30 +86,11 @@ export function EmployeePortal() {
     }
   }
 
-  async function syncLivePayRunStatuses(next: EmployeePortalSnapshot): Promise<EmployeePortalSnapshot> {
-    if (next.payslips.length === 0) return next;
-    const [ledger, generated] = await Promise.all([readBlackpayLedger(), loadGeneratedBlackpayModule()]);
-    return {
-      ...next,
-      payslips: next.payslips.map((payslip) => {
-        const payRunId = hexToBytes32(payslip.payRunIdHex, "pay-run id");
-        if (!ledger.payRuns.member(payRunId)) return payslip;
-        const live = ledger.payRuns.lookup(payRunId);
-        const status = live.status === generated.PayRunStatus.Executed
-          ? "paid"
-          : live.status === generated.PayRunStatus.Approved
-            ? "approved"
-            : "pending";
-        return { ...payslip, status };
-      }),
-    };
-  }
-
   async function refreshPortal(silent = false): Promise<EmployeePortalSnapshot | null> {
     try {
-      const next = await syncLivePayRunStatuses(await getEmployeePortalSnapshot());
+      const next = await getEmployeePortalSnapshot();
       setSnapshot(next);
-      if (!silent) setNotice("Private payslips refreshed. Pay-run lifecycle status was checked against the live Midnight ledger.");
+      if (!silent) setNotice("Private payslips refreshed from each live Blackpay v2 payment claim.");
       return next;
     } catch (error) {
       setSnapshot(null);
@@ -125,7 +103,7 @@ export function EmployeePortal() {
     await run(async () => {
       const wallet = await connectMidnightWallet(walletId);
       setConnected(wallet);
-      setNotice(`Connected ${wallet.name} on ${wallet.networkId}. Join the Blackpay contract to unlock private employee data.`);
+      setNotice(`Connected ${wallet.name} on ${wallet.networkId}. Join the Blackpay v2 contract to unlock private employee data.`);
     });
   }
 
@@ -133,7 +111,7 @@ export function EmployeePortal() {
     event.preventDefault();
     await run(async () => {
       if (!connected) throw new Error("Connect Lace first");
-      if (!contractAddress.trim()) throw new Error("Enter the Blackpay contract address or load an employee access package");
+      if (!contractAddress.trim()) throw new Error("Enter the Blackpay v2 contract address or load a v3 employee access package");
       if (!privateStatePassword) throw new Error("Enter your employee private-state password");
       const result = await initializeBlackpayPreview({
         wallet: connected,
@@ -148,8 +126,8 @@ export function EmployeePortal() {
       const existingPortal = await refreshPortal(true);
       setNotice(
         existingPortal
-          ? "Verified Blackpay contract joined. Your encrypted employee portal is ready."
-          : "Verified Blackpay contract joined. Import your employer-issued access package if this is your first visit.",
+          ? "Verified Blackpay v2 contract joined. Your encrypted employee portal is ready."
+          : "Verified Blackpay v2 contract joined. Import the fresh v3 access package from your employer.",
       );
     });
   }
@@ -161,7 +139,7 @@ export function EmployeePortal() {
         setAccessFileName("");
         return;
       }
-      if (file.size > 1_500_000) throw new Error("Employee access package is unexpectedly large");
+      if (file.size > 2_000_000) throw new Error("Employee access package is unexpectedly large");
       let parsed: unknown;
       try {
         parsed = JSON.parse(await file.text());
@@ -170,24 +148,39 @@ export function EmployeePortal() {
       }
       const envelope = assertEmployeeAccessEnvelope(parsed);
       if (envelope.networkId !== config.network) throw new Error(`This package belongs to ${envelope.networkId}, not ${config.network}`);
+      if (envelope.format !== "blackpay-employee-access-envelope-v3") {
+        throw new Error("Blackpay protocol v2 settlement requires a fresh v3 employee access package from the employer");
+      }
       setAccessEnvelope(envelope);
       setAccessFileName(file.name);
       setContractAddress(envelope.contractAddress);
       window.localStorage.setItem(contractStorageKey(config.network), envelope.contractAddress);
-      setNotice("Employee access package loaded. Connect the bound Lace wallet, join the contract, then import the package.");
+      setNotice("Blackpay v3 employee access package loaded. Connect the bound Lace wallet, join the v2 contract, then import it.");
     });
   }
 
   async function importAccess() {
     await run(async () => {
-      if (!runtimeReady) throw new Error("Join the verified Blackpay contract first");
-      if (!accessEnvelope) throw new Error("Choose the encrypted employee access package from your employer");
+      if (!runtimeReady) throw new Error("Join the verified Blackpay v2 contract first");
+      if (!accessEnvelope) throw new Error("Choose the fresh encrypted v3 employee access package from your employer");
       if (!accessPassword) throw new Error("Enter the employee access package password");
       await importEmployeeAccessPackage(accessEnvelope, accessPassword);
       const next = await refreshPortal(true);
       if (!next) throw new Error("Employee access imported but the portal could not verify the installed employee record");
       setAccessPassword("");
-      setNotice("Employee access installed. This Lace wallet can now reopen its private payslips; imported pay-run statuses are checked against the live ledger.");
+      setNotice("Employee access installed. Funded claims can now be settled only by the Lace payout wallet bound to them.");
+    });
+  }
+
+  async function claimPayment(payRunIdHex: string) {
+    await run(async () => {
+      if (!runtimeReady || !snapshot) throw new Error("Load your verified Blackpay v2 employee portal first");
+      const result = await getPayrollContractGateway().claimPayRunPayment({
+        payRunIdHex,
+        employeeIdHex: snapshot.employeeIdHex,
+      });
+      await refreshPortal(true);
+      setNotice(`Shielded salary claimed in ${result.transactionId}. Claim ${result.claimIdHex} is now settled and cannot be claimed again.`);
     });
   }
 
@@ -212,7 +205,7 @@ export function EmployeePortal() {
       if (!snapshot) throw new Error("Load your employee portal first");
       if (!verifierRef.trim()) throw new Error("Verifier reference is required");
       const { employeeIdHex, witness } = await getEmployeePortalWitness();
-      const verifierIdHex = await sha256Hex(`blackpay:verifier:v1:${verifierRef.trim()}`);
+      const verifierIdHex = await sha256Hex(`blackpay:verifier:v2:${verifierRef.trim()}`);
       const result = await getPayrollContractGateway().createEmploymentDisclosure({
         employeeIdHex,
         verifierIdHex,
@@ -228,7 +221,7 @@ export function EmployeePortal() {
     <main className="shell employeePortalShell">
       <header className="topbar">
         <div>
-          <div className="eyebrow">BLACKPAY / EMPLOYEE</div>
+          <div className="eyebrow">BLACKPAY V2 / EMPLOYEE</div>
           <h1>MY PAY</h1>
         </div>
         <div className="topActions">
@@ -247,16 +240,16 @@ export function EmployeePortal() {
       </header>
 
       <section className="hero employeeHero">
-        <p className="kicker">YOUR PAY. YOUR PROOFS. NOT EVERYONE ELSE'S BUSINESS.</p>
-        <h2>See your payslips privately.</h2>
-        <p className="heroCopy">Your employer sends encrypted access packages containing your current private payroll records. Blackpay verifies each package against your connected Lace shielded wallet and the live employee commitment. Imported records stay encrypted in your wallet-scoped browser storage, and their pay-run status can refresh from the live ledger. A brand-new payslip requires an updated encrypted package until Blackpay adds a private delivery inbox.</p>
+        <p className="kicker">YOUR PAY. YOUR PROOFS. NOT EVERYONE ELSE&apos;S BUSINESS.</p>
+        <h2>Claim your salary privately.</h2>
+        <p className="heroCopy">Blackpay v2 verifies your encrypted employee package against the live contract and your connected Lace payout wallet. When an employer funds your exact committed payment, the portal exposes a one-time shielded claim. Salary details and the contract-held coin capability remain encrypted in your wallet-scoped private state.</p>
       </section>
 
       <section className="statusGrid">
         <article className="statusCard"><span>WALLET</span><strong>{connected ? "CONNECTED" : "CONNECT"}</strong></article>
-        <article className="statusCard"><span>CONTRACT</span><strong>{runtimeReady ? "VERIFIED / JOINED" : "JOIN REQUIRED"}</strong></article>
+        <article className="statusCard"><span>CONTRACT</span><strong>{runtimeReady ? "V2 VERIFIED / JOINED" : "JOIN REQUIRED"}</strong></article>
         <article className="statusCard"><span>EMPLOYEE ACCESS</span><strong>{snapshot ? "UNLOCKED" : "LOCKED"}</strong></article>
-        <article className="statusCard"><span>PRIVACY</span><strong>LOCAL + ENCRYPTED</strong></article>
+        <article className="statusCard"><span>SETTLEMENT</span><strong>ONE-TIME CLAIM</strong></article>
       </section>
 
       {(notice || failure) && <section className={failure ? "message error" : "message success"}>{failure || notice}</section>}
@@ -264,33 +257,33 @@ export function EmployeePortal() {
       <section className="workspaceGrid">
         <form className="panel wide" onSubmit={joinRuntime}>
           <div className="panelNumber">01 / VERIFY</div>
-          <h3>Join your employer's Blackpay contract</h3>
+          <h3>Join your employer&apos;s Blackpay v2 contract</h3>
           <p>The contract address is public. Your private-state password never leaves this browser.</p>
           <div className="twoCol">
-            <label>Contract address<input value={contractAddress} onChange={(event) => setContractAddress(event.target.value)} placeholder="Blackpay Midnight contract address" autoComplete="off" /></label>
+            <label>Contract address<input value={contractAddress} onChange={(event) => setContractAddress(event.target.value)} placeholder="Blackpay v2 Midnight contract address" autoComplete="off" /></label>
             <label>Employee private-state password<input type="password" value={privateStatePassword} onChange={(event) => setPrivateStatePassword(event.target.value)} placeholder="16+ chars, 3 character classes" autoComplete="new-password" /></label>
           </div>
-          <button className="primary" disabled={busy || !connected || !contractAddress.trim()}>JOIN VERIFIED CONTRACT</button>
+          <button className="primary" disabled={busy || !connected || !contractAddress.trim()}>JOIN VERIFIED V2 CONTRACT</button>
         </form>
 
         <section className="panel wide">
           <div className="panelNumber">02 / EMPLOYEE ACCESS</div>
           <h3>Import employee access</h3>
-          <p>Each encrypted package contains only your employee witness and the private payslips included by your employer at export time. Blackpay rejects the package if the connected Lace shielded wallet does not match the payout commitment your employer originally registered.</p>
+          <p>Use the fresh v3 package exported after payroll funding. It carries your encrypted employee witness, payslips, and only your contract-bound settlement capabilities. Blackpay rejects it unless the connected Lace shielded wallet matches the registered payout wallet.</p>
           <div className="twoCol">
             <label>Employee access package<input type="file" accept="application/json,.json" onChange={(event) => void loadAccessFile(event.target.files?.[0] ?? null)} /></label>
             <label>Access package password<input type="password" value={accessPassword} onChange={(event) => setAccessPassword(event.target.value)} placeholder="Password shared by employer" autoComplete="off" /></label>
           </div>
           {accessFileName && <p>Loaded: <code>{accessFileName}</code></p>}
-          <button className="primary" type="button" disabled={busy || !runtimeReady || !accessEnvelope} onClick={importAccess}>VERIFY WALLET + IMPORT ACCESS</button>
+          <button className="primary" type="button" disabled={busy || !runtimeReady || !accessEnvelope} onClick={importAccess}>VERIFY WALLET + IMPORT V3 ACCESS</button>
         </section>
 
         {snapshot ? (
           <>
             <section className="panel wide">
-              <div className="panelNumber">03 / PAYSLIPS</div>
+              <div className="panelNumber">03 / PAYSLIPS + CLAIMS</div>
               <h3>My private payslips</h3>
-              <p>Employee status: <strong>{snapshot.status.toUpperCase()}</strong>. Salary and payment values below come from encrypted employee state; lifecycle status is refreshed from public pay-run state.</p>
+              <p>Employee status: <strong>{snapshot.status.toUpperCase()}</strong>. Each lifecycle label below comes from that employee&apos;s exact live payment claim, not merely the overall pay run.</p>
               <div className="payslipGrid">
                 {snapshot.payslips.length ? snapshot.payslips.map((payslip) => (
                   <article className="payslipCard" key={`${payslip.employeeIdHex}:${payslip.payRunIdHex}`}>
@@ -299,12 +292,17 @@ export function EmployeePortal() {
                     <dl>
                       <div><dt>Gross</dt><dd>{money(payslip.grossMinor, payslip.currencyCode)}</dd></div>
                       <div><dt>Net</dt><dd>{money(payslip.netMinor, payslip.currencyCode)}</dd></div>
-                      <div><dt>Settlement</dt><dd>{payslip.paymentTransactionId ? `${payslip.paymentTransactionId.slice(0, 12)}…` : payslip.status === "paid" ? "CONFIRMED ON CHAIN" : "NOT SETTLED"}</dd></div>
+                      <div><dt>Settlement</dt><dd>{payslip.paymentTransactionId ? `${payslip.paymentTransactionId.slice(0, 12)}…` : payslip.status === "funded" ? "READY TO CLAIM" : payslip.status === "paid" ? "CONFIRMED ON CHAIN" : "NOT SETTLED"}</dd></div>
                     </dl>
+                    {payslip.status === "funded" && (
+                      <button className="primary full" type="button" disabled={busy} onClick={() => void claimPayment(payslip.payRunIdHex)}>
+                        CLAIM SHIELDED SALARY
+                      </button>
+                    )}
                   </article>
                 )) : <div className="message success">Your employee access is valid, but no payslips have been issued yet.</div>}
               </div>
-              <button className="secondary" type="button" disabled={busy} onClick={() => void run(async () => { await refreshPortal(); })}>REFRESH MY PAYSLIPS</button>
+              <button className="secondary" type="button" disabled={busy} onClick={() => void run(async () => { await refreshPortal(); })}>REFRESH MY CLAIMS</button>
             </section>
 
             <form className="panel" onSubmit={proveIncome}>
@@ -327,8 +325,8 @@ export function EmployeePortal() {
         ) : (
           <section className="panel wide lockedPortal">
             <div className="panelNumber">03 / LOCKED</div>
-            <h3>Your payslips stay hidden until wallet verification succeeds.</h3>
-            <p>No salary or payslip data is fetched into this view until the encrypted access record matches the connected Lace payout commitment.</p>
+            <h3>Your payroll stays hidden until wallet verification succeeds.</h3>
+            <p>No salary, payslip, or settlement capability is installed until the encrypted v3 access package matches both the live v2 employee commitment and the connected Lace payout wallet.</p>
           </section>
         )}
       </section>
