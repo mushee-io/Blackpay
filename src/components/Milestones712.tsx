@@ -1,16 +1,34 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 import { buildPublicAuditBundle } from "@/lib/compliance/audit-bundle";
 import { getPayrollContractGateway } from "@/lib/midnight/contract-client";
-import {
-  exportEmployeeAccessPackage,
-  issuePortalPayslip,
-} from "@/lib/midnight/live-runtime";
+import { exportEmployeeAccessPackage, issuePortalPayslip } from "@/lib/midnight/live-runtime";
 import { getMidnightPublicConfig } from "@/lib/midnight/network";
 import { sha256Hex } from "@/lib/payroll/commitments";
 import { getEmployeeWitness } from "@/lib/payroll/session-store";
 import { newPrivateSaltHex } from "@/lib/payroll/validation";
+
+export type AdvancedSection = "disclosures" | "employee-access" | "audit";
+
+const META: Record<AdvancedSection, { eyebrow: string; title: string; description: string }> = {
+  disclosures: {
+    eyebrow: "Selective disclosure",
+    title: "Disclosures",
+    description: "Share only the verified fact a verifier needs — not the underlying payroll record.",
+  },
+  "employee-access": {
+    eyebrow: "Private delivery",
+    title: "Employee access",
+    description: "Issue private payslips and export wallet-bound encrypted access packages.",
+  },
+  audit: {
+    eyebrow: "Compliance",
+    title: "Audit",
+    description: "Build redacted public audit bundles without exposing payroll secrets.",
+  },
+};
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown Blackpay error";
@@ -23,10 +41,7 @@ async function privateId(domain: string, value: string): Promise<string> {
 }
 
 function splitRefs(value: string): string[] {
-  return value
-    .split(/[,\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return value.split(/[,\n]/).map((item) => item.trim()).filter(Boolean);
 }
 
 function toFutureEpochSeconds(value: string): bigint {
@@ -57,8 +72,9 @@ function saveJsonFile(name: string, value: unknown): void {
   URL.revokeObjectURL(url);
 }
 
-export function Milestones712() {
+export function Milestones712({ section = "disclosures" }: { section?: AdvancedSection }) {
   const config = useMemo(() => getMidnightPublicConfig(), []);
+  const meta = META[section];
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [failure, setFailure] = useState("");
@@ -87,13 +103,7 @@ export function Milestones712() {
     setBusy(true);
     setNotice("");
     setFailure("");
-    try {
-      await action();
-    } catch (error) {
-      setFailure(message(error));
-    } finally {
-      setBusy(false);
-    }
+    try { await action(); } catch (error) { setFailure(message(error)); } finally { setBusy(false); }
   }
 
   async function createIncomeDisclosure(event: FormEvent) {
@@ -111,7 +121,7 @@ export function Milestones712() {
         witness,
       });
       setLastDisclosure({ id: result.disclosureIdHex, employeeIdHex });
-      setNotice(`Scoped income disclosure created: ${result.disclosureIdHex} in ${result.transactionId}.`);
+      setNotice(`Scoped income disclosure created: ${result.disclosureIdHex}`);
     });
   }
 
@@ -128,7 +138,7 @@ export function Milestones712() {
         witness,
       });
       setLastDisclosure({ id: result.disclosureIdHex, employeeIdHex });
-      setNotice(`Scoped employment disclosure created: ${result.disclosureIdHex} in ${result.transactionId}.`);
+      setNotice(`Scoped employment disclosure created: ${result.disclosureIdHex}`);
     });
   }
 
@@ -136,11 +146,7 @@ export function Milestones712() {
     await run(async () => {
       if (!lastDisclosure) throw new Error("No disclosure has been created in this session");
       const witness = getEmployeeWitness(lastDisclosure.employeeIdHex);
-      const result = await getPayrollContractGateway().revokeDisclosure({
-        employeeIdHex: lastDisclosure.employeeIdHex,
-        disclosureIdHex: lastDisclosure.id,
-        witness,
-      });
+      const result = await getPayrollContractGateway().revokeDisclosure({ employeeIdHex: lastDisclosure.employeeIdHex, disclosureIdHex: lastDisclosure.id, witness });
       setNotice(`Disclosure revoked in ${result.transactionId}.`);
       setLastDisclosure(null);
     });
@@ -157,7 +163,6 @@ export function Milestones712() {
       const netMinor = parsePositiveBigInt(payslipNet, "Net pay");
       if (netMinor > grossMinor) throw new Error("Net pay cannot exceed gross pay");
       if (!payslipCurrency.trim()) throw new Error("Currency code is required");
-
       const payslip = await issuePortalPayslip({
         employeeIdHex,
         payRunIdHex,
@@ -167,7 +172,7 @@ export function Milestones712() {
         currencyCode: payslipCurrency.trim().toUpperCase(),
         ...(payslipTx.trim() ? { paymentTransactionId: payslipTx.trim() } : {}),
       });
-      setNotice(`Encrypted employee payslip saved as ${payslip.status.toUpperCase()}. No salary amount was written to public storage.`);
+      setNotice(`Encrypted employee payslip saved as ${payslip.status.toUpperCase()}.`);
     });
   }
 
@@ -178,7 +183,7 @@ export function Milestones712() {
       const envelope = await exportEmployeeAccessPackage({ employeeIdHex, accessPassword: employeeAccessPassword });
       saveJsonFile(`blackpay-v2-employee-${employeeIdHex.slice(0, 12)}-access-v3.json`, envelope);
       setEmployeeAccessPassword("");
-      setNotice("Fresh v3 employee access package exported. After payroll funding, export again so the employee receives the encrypted contract-coin claim capability. Share the JSON and password through separate secure channels.");
+      setNotice("Fresh v3 employee access package exported. Share the JSON and password through separate secure channels.");
     });
   }
 
@@ -197,131 +202,68 @@ export function Milestones712() {
     });
   }
 
+  const primaryNav = [
+    ["/", "Dashboard"], ["/workspace", "Workspace"], ["/employees", "Employees"], ["/pay-runs", "Pay runs"], ["/proofs", "Proofs"],
+  ];
+  const privateNav: Array<[string, string, AdvancedSection?]> = [
+    ["/disclosures", "Disclosures", "disclosures"], ["/employee-access", "Employee access", "employee-access"], ["/audit", "Audit", "audit"], ["/employee", "Employee portal"],
+  ];
+
   return (
-    <section className="shell">
-      <div className="eyebrow">BLACKPAY V2 / MILESTONES 7–12</div>
-      <h2>Disclosure, employee access, compliance, and integrations.</h2>
+    <main className="blackpayAppShell professionalShell">
+      <aside className="appSidebar professionalSidebar">
+        <Link className="brandLockup professionalBrand" href="/"><span className="brandGlyph professionalGlyph" aria-hidden="true"><span /><span /></span><span className="brandText">Blackpay<small>Protocol v2</small></span></Link>
+        <div className="sidebarGroup"><span className="sidebarLabel">Employer</span><nav className="sidebarNav">{primaryNav.map(([href, label]) => <Link key={href} href={href}>{label}</Link>)}</nav></div>
+        <div className="sidebarGroup"><span className="sidebarLabel">Private operations</span><nav className="sidebarNav">{privateNav.map(([href, label, target]) => <Link key={href} className={target === section ? "active" : ""} href={href}>{label}</Link>)}</nav></div>
+        <div className="sidebarGroup sidebarUtility"><span className="sidebarLabel">Infrastructure</span><nav className="sidebarNav"><Link href="/runtime">Runtime & recovery</Link></nav></div>
+        <div className="sidebarWalletCard professionalWalletCard"><div><span className="statusDot online" /><span>Private operations</span></div><strong>Fail closed</strong><small>{config.network.toUpperCase()} · TESTNET</small></div>
+      </aside>
 
-      <nav className="buttonRow" aria-label="Blackpay product areas">
-        <span className="network">OVERVIEW</span>
-        <span className="network">PEOPLE</span>
-        <span className="network">PAYRUNS</span>
-        <span className="network">PROOFS</span>
-        <a className="network" href="/employee">EMPLOYEE PORTAL</a>
-        <span className="network">AUDIT</span>
-        <span className="network">API</span>
-      </nav>
+      <section className="appMain professionalMain">
+        <header className="appTopbar professionalTopbar"><div className="topbarTitle"><span className="eyebrow">{meta.eyebrow}</span><h1>{meta.title}</h1><p>{meta.description}</p></div><div className="topActions"><span className="network">{config.network.toUpperCase()}</span><Link className="secondary compactButton" href="/runtime">Runtime</Link></div></header>
 
-      <section className="statusGrid">
-        <article className="statusCard"><span>M7</span><strong>SELECTIVE DISCLOSURE</strong></article>
-        <article className="statusCard"><span>M8</span><strong>V2 EMPLOYER CONSOLE</strong></article>
-        <article className="statusCard"><span>M9</span><strong>WALLET-BOUND CLAIM PORTAL</strong></article>
-        <article className="statusCard"><span>M10–12</span><strong>RELEASE / AUDIT / SDK</strong></article>
+        {(notice || failure) && <section className={failure ? "message error" : "message success"}>{failure || notice}</section>}
+
+        <div className="pageCanvas">
+          {section === "disclosures" && (
+            <section className="singleWorkspace"><form className="panel primaryPanel" onSubmit={createIncomeDisclosure}>
+              <div className="panelHeader"><div><span className="sectionKicker">Verifier-scoped proof</span><h3>Create disclosure</h3></div><span className="securityTag">Selective</span></div>
+              <p>Bind one verified fact to one verifier and an explicit expiry. Exact salary stays private.</p>
+              <div className="twoCol"><label>Employee reference<input value={employeeRef} onChange={(e) => setEmployeeRef(e.target.value)} placeholder="employee-001" /></label><label>Verifier reference<input value={verifierRef} onChange={(e) => setVerifierRef(e.target.value)} placeholder="landlord-or-lender" /></label></div>
+              <div className="twoCol"><label>Income threshold in minor units<input inputMode="numeric" value={thresholdMinor} onChange={(e) => setThresholdMinor(e.target.value)} placeholder="250000" /></label><label>Expires at<input type="datetime-local" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} /></label></div>
+              <div className="actionBar multiAction"><span>Only the scoped fact is disclosed.</span><div><button className="primary" disabled={busy}>Prove income</button><button className="secondary" type="button" disabled={busy} onClick={createEmploymentDisclosure}>Prove employment</button><button className="secondary" type="button" disabled={busy || !lastDisclosure} onClick={revokeLastDisclosure}>Revoke</button></div></div>
+              {lastDisclosure && <p className="monoNote">Last disclosure: <code>{lastDisclosure.id}</code></p>}
+            </form></section>
+          )}
+
+          {section === "employee-access" && (
+            <section className="singleWorkspace"><form className="panel primaryPanel" onSubmit={issuePrivatePayslip}>
+              <div className="panelHeader"><div><span className="sectionKicker">Wallet-bound delivery</span><h3>Payslip & access package</h3></div><span className="securityTag">AES-GCM</span></div>
+              <p>Backfill an existing v2 pay run when needed, then export a fresh v3 package after funding so the employee receives the encrypted one-time claim capability.</p>
+              <div className="twoCol"><label>Employee reference<input value={payslipEmployeeRef} onChange={(e) => setPayslipEmployeeRef(e.target.value)} placeholder="employee-001" /></label><label>Pay run reference<input value={payslipRunRef} onChange={(e) => setPayslipRunRef(e.target.value)} placeholder="2026-09" /></label></div>
+              <div className="twoCol"><label>Period<input inputMode="numeric" value={payslipPeriod} onChange={(e) => setPayslipPeriod(e.target.value)} placeholder="202609" /></label><label>Currency<input value={payslipCurrency} onChange={(e) => setPayslipCurrency(e.target.value)} placeholder="TOKEN" /></label></div>
+              <div className="twoCol"><label>Gross minor units<input inputMode="numeric" value={payslipGross} onChange={(e) => setPayslipGross(e.target.value)} placeholder="325000" /></label><label>Net minor units<input inputMode="numeric" value={payslipNet} onChange={(e) => setPayslipNet(e.target.value)} placeholder="325000" /></label></div>
+              <label>Settlement transaction ID (only after paid)<input value={payslipTx} onChange={(e) => setPayslipTx(e.target.value)} placeholder="Leave blank until employee claim settles" /></label>
+              <div className="actionBar"><span>Salary remains in encrypted private state.</span><button className="primary" disabled={busy}>Save encrypted payslip</button></div>
+              <div className="employeeAccessBlock"><label>Employee access package password<input type="password" value={employeeAccessPassword} onChange={(e) => setEmployeeAccessPassword(e.target.value)} placeholder="16+ chars, 3 character classes" autoComplete="new-password" /></label><div className="actionBar"><span>Package is bound to the v2 employee commitment and Lace payout key.</span><button className="secondary" type="button" disabled={busy || !payslipEmployeeRef.trim()} onClick={exportEmployeeAccess}>Export v3 access package</button></div></div>
+            </form></section>
+          )}
+
+          {section === "audit" && (
+            <section className="singleWorkspace"><form className="panel primaryPanel" onSubmit={buildAudit}>
+              <div className="panelHeader"><div><span className="sectionKicker">Redacted evidence</span><h3>Public audit bundle</h3></div><span className="securityTag">No payroll secrets</span></div>
+              <p>Export only public proof references and commitments. Salary, payout destinations, salts and witnesses are structurally excluded.</p>
+              <label>Proof IDs<textarea rows={3} value={proofRefs} onChange={(e) => setProofRefs(e.target.value)} placeholder="one 32-byte hex proof ID per line" /></label>
+              <label>Disclosure IDs<textarea rows={3} value={disclosureRefs} onChange={(e) => setDisclosureRefs(e.target.value)} placeholder="one 32-byte hex disclosure ID per line" /></label>
+              <label>Settlement commitments<textarea rows={3} value={transactionRefs} onChange={(e) => setTransactionRefs(e.target.value)} placeholder="one 32-byte hex commitment per line" /></label>
+              <div className="actionBar"><span>Output contains public references only.</span><button className="primary" disabled={busy}>Build audit bundle</button></div>
+              {auditPreview && <pre className="auditPreview">{auditPreview}</pre>}
+            </form></section>
+          )}
+        </div>
+
+        <footer className="polishedFooter"><div><span className="footerBrand">Blackpay</span><p>Confidential payroll on Midnight.</p></div><div className="footerMeta"><span>Protocol v2</span><span>{config.network.toUpperCase()} testnet</span><span>Private by default</span></div></footer>
       </section>
-
-      {(notice || failure) && (
-        <section className={failure ? "message error" : "message success"}>{failure || notice}</section>
-      )}
-
-      <section className="workspaceGrid">
-        <form className="panel wide" onSubmit={createIncomeDisclosure}>
-          <div className="panelNumber">07</div>
-          <h3>Selective disclosure</h3>
-          <p>Bind one verified fact to one verifier and an explicit expiry. Exact salary stays private.</p>
-          <div className="twoCol">
-            <label>Employee reference<input value={employeeRef} onChange={(e) => setEmployeeRef(e.target.value)} placeholder="employee-001" /></label>
-            <label>Verifier reference<input value={verifierRef} onChange={(e) => setVerifierRef(e.target.value)} placeholder="landlord-or-lender" /></label>
-          </div>
-          <div className="twoCol">
-            <label>Income threshold in minor units<input inputMode="numeric" value={thresholdMinor} onChange={(e) => setThresholdMinor(e.target.value)} placeholder="250000" /></label>
-            <label>Expires at<input type="datetime-local" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} /></label>
-          </div>
-          <div className="buttonRow">
-            <button className="primary" disabled={busy}>PROVE INCOME TO VERIFIER</button>
-            <button className="secondary" type="button" disabled={busy} onClick={createEmploymentDisclosure}>PROVE ACTIVE EMPLOYMENT</button>
-            <button className="secondary" type="button" disabled={busy || !lastDisclosure} onClick={revokeLastDisclosure}>REVOKE LAST DISCLOSURE</button>
-          </div>
-          {lastDisclosure && <p>Last disclosure: <code>{lastDisclosure.id}</code></p>}
-        </form>
-
-        <article className="panel">
-          <div className="panelNumber">08</div>
-          <h3>Employer dashboard</h3>
-          <p>The employer surface spans workspace, people, pay runs, proofs, employee access, disclosure, audit, and release readiness.</p>
-          <dl>
-            <div><dt>Workspace</dt><dd>ACTIVE FLOW</dd></div>
-            <div><dt>Private employees</dt><dd>WALLET BOUND</dd></div>
-            <div><dt>Pay runs</dt><dd>CONTRACT-BOUND CLAIMS</dd></div>
-            <div><dt>Proofs</dt><dd>SCOPED</dd></div>
-            <div><dt>Employee portal</dt><dd>/employee</dd></div>
-          </dl>
-        </article>
-
-        <form className="panel" onSubmit={issuePrivatePayslip}>
-          <div className="panelNumber">09</div>
-          <h3>Employee payslip + v3 access package</h3>
-          <p>V2 pay runs create payslips automatically. Use this form only to backfill an existing v2 pay run. Export a fresh v3 package after funding so the employee receives the encrypted one-time claim capability.</p>
-          <label>Employee reference<input value={payslipEmployeeRef} onChange={(e) => setPayslipEmployeeRef(e.target.value)} placeholder="employee-001" /></label>
-          <label>Pay run reference<input value={payslipRunRef} onChange={(e) => setPayslipRunRef(e.target.value)} placeholder="2026-09" /></label>
-          <div className="twoCol">
-            <label>Period<input inputMode="numeric" value={payslipPeriod} onChange={(e) => setPayslipPeriod(e.target.value)} placeholder="202609" /></label>
-            <label>Currency<input value={payslipCurrency} onChange={(e) => setPayslipCurrency(e.target.value)} placeholder="TOKEN" /></label>
-          </div>
-          <div className="twoCol">
-            <label>Gross minor units<input inputMode="numeric" value={payslipGross} onChange={(e) => setPayslipGross(e.target.value)} placeholder="325000" /></label>
-            <label>Net minor units<input inputMode="numeric" value={payslipNet} onChange={(e) => setPayslipNet(e.target.value)} placeholder="325000" /></label>
-          </div>
-          <label>Settlement transaction ID (only after paid)<input value={payslipTx} onChange={(e) => setPayslipTx(e.target.value)} placeholder="Leave blank until the employee claim settles" /></label>
-          <button className="primary full" disabled={busy}>SAVE ENCRYPTED PAYSLIP</button>
-
-          <div className="employeeAccessBlock">
-            <label>Employee access package password<input type="password" value={employeeAccessPassword} onChange={(e) => setEmployeeAccessPassword(e.target.value)} placeholder="16+ chars, 3 character classes" autoComplete="new-password" /></label>
-            <button className="secondary full" type="button" disabled={busy || !payslipEmployeeRef.trim()} onClick={exportEmployeeAccess}>EXPORT V3 EMPLOYEE ACCESS PACKAGE</button>
-            <p>The AES-GCM package is bound to the v2 employee commitment and Lace payout key. Funded contract-coin data stays encrypted inside the package and private state.</p>
-          </div>
-        </form>
-
-        <article className="panel">
-          <div className="panelNumber">10</div>
-          <h3>Security / live release gate</h3>
-          <p>Release remains fail-closed until protocol-v2 Compact artifacts, Preview services, the new v2 contract address, and build checks all pass.</p>
-          <dl>
-            <div><dt>Compact target</dt><dd>0.31.1</dd></div>
-            <div><dt>Ledger</dt><dd>8.1.0</dd></div>
-            <div><dt>Employee access</dt><dd>V3 / AES-GCM / PBKDF2</dd></div>
-            <div><dt>Wallet binding</dt><dd>PAYOUT KEY + COMMITMENT</dd></div>
-          </dl>
-        </article>
-
-        <form className="panel wide" onSubmit={buildAudit}>
-          <div className="panelNumber">11</div>
-          <h3>Compliance / audit bundle</h3>
-          <p>Export only public proof references and commitments. Salary, payout destinations, salts, and witnesses are structurally excluded.</p>
-          <label>Proof IDs<textarea rows={3} value={proofRefs} onChange={(e) => setProofRefs(e.target.value)} placeholder="one 32-byte hex proof ID per line" /></label>
-          <label>Disclosure IDs<textarea rows={3} value={disclosureRefs} onChange={(e) => setDisclosureRefs(e.target.value)} placeholder="one 32-byte hex disclosure ID per line" /></label>
-          <label>Settlement commitments<textarea rows={3} value={transactionRefs} onChange={(e) => setTransactionRefs(e.target.value)} placeholder="one 32-byte hex commitment per line" /></label>
-          <button className="primary" disabled={busy}>BUILD REDACTED AUDIT BUNDLE</button>
-          {auditPreview && <pre>{auditPreview}</pre>}
-        </form>
-
-        <article className="panel">
-          <div className="panelNumber">12</div>
-          <h3>API / SDK integrations</h3>
-          <p>Partners get a typed protocol-v2 SDK façade over the real Midnight gateway plus a public-safe readiness endpoint.</p>
-          <dl>
-            <div><dt>SDK</dt><dd>src/lib/sdk/blackpay.ts</dd></div>
-            <div><dt>Status API</dt><dd>/api/v1/status</dd></div>
-            <div><dt>Settlement API</dt><dd>REGISTER / FUND / CLAIM</dd></div>
-            <div><dt>Private fallback</dt><dd>NONE</dd></div>
-            <div><dt>Network</dt><dd>{config.network.toUpperCase()}</dd></div>
-          </dl>
-        </article>
-      </section>
-
-      <footer>
-        <span>BLACKPAY V2 / MILESTONES 7–12</span>
-        <span>PRIVATE BY DEFAULT · DISCLOSE BY PROOF</span>
-      </footer>
-    </section>
+    </main>
   );
 }
