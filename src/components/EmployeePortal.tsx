@@ -2,13 +2,16 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { getPayrollContractGateway } from "@/lib/midnight/contract-client";
+import { hexToBytes32 } from "@/lib/midnight/bytes";
 import { assertEmployeeAccessEnvelope, type EmployeeAccessEnvelope } from "@/lib/midnight/employee-access";
+import { loadGeneratedBlackpayModule } from "@/lib/midnight/generated-contract";
 import {
   getEmployeePortalSnapshot,
   getEmployeePortalWitness,
   getBlackpayRuntimeStatus,
   importEmployeeAccessPackage,
   initializeBlackpayPreview,
+  readBlackpayLedger,
   type EmployeePortalSnapshot,
 } from "@/lib/midnight/live-runtime";
 import { getMidnightPublicConfig } from "@/lib/midnight/network";
@@ -86,14 +89,35 @@ export function EmployeePortal() {
     }
   }
 
-  async function refreshPortal(silent = false) {
+  async function syncLivePayRunStatuses(next: EmployeePortalSnapshot): Promise<EmployeePortalSnapshot> {
+    if (next.payslips.length === 0) return next;
+    const [ledger, generated] = await Promise.all([readBlackpayLedger(), loadGeneratedBlackpayModule()]);
+    return {
+      ...next,
+      payslips: next.payslips.map((payslip) => {
+        const payRunId = hexToBytes32(payslip.payRunIdHex, "pay-run id");
+        if (!ledger.payRuns.member(payRunId)) return payslip;
+        const live = ledger.payRuns.lookup(payRunId);
+        const status = live.status === generated.PayRunStatus.Executed
+          ? "paid"
+          : live.status === generated.PayRunStatus.Approved
+            ? "approved"
+            : "pending";
+        return { ...payslip, status };
+      }),
+    };
+  }
+
+  async function refreshPortal(silent = false): Promise<EmployeePortalSnapshot | null> {
     try {
-      const next = await getEmployeePortalSnapshot();
+      const next = await syncLivePayRunStatuses(await getEmployeePortalSnapshot());
       setSnapshot(next);
-      if (!silent) setNotice("Employee payslips loaded from wallet-scoped encrypted private state.");
+      if (!silent) setNotice("Private payslips refreshed. Pay-run lifecycle status was checked against the live Midnight ledger.");
+      return next;
     } catch (error) {
       setSnapshot(null);
       if (!silent) throw error;
+      return null;
     }
   }
 
@@ -121,9 +145,9 @@ export function EmployeePortal() {
       setContractAddress(result.contractAddress);
       setRuntimeReady(true);
       setPrivateStatePassword("");
-      await refreshPortal(true);
+      const existingPortal = await refreshPortal(true);
       setNotice(
-        snapshot
+        existingPortal
           ? "Verified Blackpay contract joined. Your encrypted employee portal is ready."
           : "Verified Blackpay contract joined. Import your employer-issued access package if this is your first visit.",
       );
@@ -159,10 +183,11 @@ export function EmployeePortal() {
       if (!runtimeReady) throw new Error("Join the verified Blackpay contract first");
       if (!accessEnvelope) throw new Error("Choose the encrypted employee access package from your employer");
       if (!accessPassword) throw new Error("Enter the employee access package password");
-      const next = await importEmployeeAccessPackage(accessEnvelope, accessPassword);
-      setSnapshot(next);
+      await importEmployeeAccessPackage(accessEnvelope, accessPassword);
+      const next = await refreshPortal(true);
+      if (!next) throw new Error("Employee access imported but the portal could not verify the installed employee record");
       setAccessPassword("");
-      setNotice("Employee access installed. This Lace wallet can now reopen its private payslips from encrypted local state.");
+      setNotice("Employee access installed. This Lace wallet can now reopen its private payslips; imported pay-run statuses are checked against the live ledger.");
     });
   }
 
@@ -265,7 +290,7 @@ export function EmployeePortal() {
             <section className="panel wide">
               <div className="panelNumber">03 / PAYSLIPS</div>
               <h3>My private payslips</h3>
-              <p>Employee status: <strong>{snapshot.status.toUpperCase()}</strong>. Salary and payment values below come from encrypted employee state, not public ledger fields.</p>
+              <p>Employee status: <strong>{snapshot.status.toUpperCase()}</strong>. Salary and payment values below come from encrypted employee state; lifecycle status is refreshed from public pay-run state.</p>
               <div className="payslipGrid">
                 {snapshot.payslips.length ? snapshot.payslips.map((payslip) => (
                   <article className="payslipCard" key={`${payslip.employeeIdHex}:${payslip.payRunIdHex}`}>
@@ -274,12 +299,12 @@ export function EmployeePortal() {
                     <dl>
                       <div><dt>Gross</dt><dd>{money(payslip.grossMinor, payslip.currencyCode)}</dd></div>
                       <div><dt>Net</dt><dd>{money(payslip.netMinor, payslip.currencyCode)}</dd></div>
-                      <div><dt>Settlement</dt><dd>{payslip.paymentTransactionId ? `${payslip.paymentTransactionId.slice(0, 12)}…` : "NOT SETTLED"}</dd></div>
+                      <div><dt>Settlement</dt><dd>{payslip.paymentTransactionId ? `${payslip.paymentTransactionId.slice(0, 12)}…` : payslip.status === "paid" ? "CONFIRMED ON CHAIN" : "NOT SETTLED"}</dd></div>
                     </dl>
                   </article>
                 )) : <div className="message success">Your employee access is valid, but no payslips have been issued yet.</div>}
               </div>
-              <button className="secondary" type="button" disabled={busy} onClick={() => void run(() => refreshPortal())}>REFRESH MY PAYSLIPS</button>
+              <button className="secondary" type="button" disabled={busy} onClick={() => void run(async () => { await refreshPortal(); })}>REFRESH MY PAYSLIPS</button>
             </section>
 
             <form className="panel" onSubmit={proveIncome}>
