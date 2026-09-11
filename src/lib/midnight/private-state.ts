@@ -1,6 +1,6 @@
 import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
 import type { PrivateStateProvider } from "@midnight-ntwrk/midnight-js-types";
-import { hexToBytes32, randomBytes32 } from "./bytes";
+import { bytesToHex, hexToBytes32, randomBytes32 } from "./bytes";
 import type { PrivateEmployeeWitness, PrivatePayRunWitness } from "./contract-client";
 
 export const BLACKPAY_PRIVATE_STATE_ID = "blackpayPrivateState" as const;
@@ -17,10 +17,26 @@ export type BlackpayPayRunRecord = {
   salt: Uint8Array;
 };
 
+export type BlackpayPortalPayslipStatus = "pending" | "approved" | "paid";
+
+export type BlackpayPortalPayslipRecord = {
+  employeeIdHex: string;
+  payRunIdHex: string;
+  period: number;
+  grossMinor: bigint;
+  netMinor: bigint;
+  currencyCode: string;
+  status: BlackpayPortalPayslipStatus;
+  paymentTransactionId?: string;
+  createdAt: number;
+};
+
 export type BlackpayPrivateState = {
   adminSecret: Uint8Array;
   employeeRecords: Record<string, BlackpayEmployeeRecord>;
   payRunRecords: Record<string, BlackpayPayRunRecord>;
+  portalPayslips?: Record<string, BlackpayPortalPayslipRecord>;
+  workspaceCurrencyCode?: string;
   activeEmployeeId?: string;
   activePayRunId?: string;
 };
@@ -31,6 +47,7 @@ export function createInitialBlackpayPrivateState(adminSecret = randomBytes32())
     adminSecret: new Uint8Array(adminSecret),
     employeeRecords: {},
     payRunRecords: {},
+    portalPayslips: {},
   };
 }
 
@@ -40,6 +57,15 @@ function employeeRecordFromWitness(witness: PrivateEmployeeWitness): BlackpayEmp
     salaryMinor: witness.salaryMinor,
     payoutCommitment: hexToBytes32(witness.payoutCommitmentHex, "payout commitment"),
     salt: hexToBytes32(witness.saltHex, "employee salt"),
+  };
+}
+
+export function employeeWitnessFromRecord(record: BlackpayEmployeeRecord): PrivateEmployeeWitness {
+  if (record.salaryMinor <= 0n) throw new Error("Encrypted employee record has an invalid salary");
+  return {
+    salaryMinor: record.salaryMinor,
+    payoutCommitmentHex: bytesToHex(record.payoutCommitment),
+    saltHex: bytesToHex(record.salt),
   };
 }
 
@@ -61,7 +87,7 @@ export function upsertEmployeeWitness(
   return {
     ...state,
     employeeRecords: {
-      ...state.employeeRecords,
+      ...(state.employeeRecords ?? {}),
       [employeeIdHex]: employeeRecordFromWitness(witness),
     },
     activeEmployeeId: employeeIdHex,
@@ -70,8 +96,8 @@ export function upsertEmployeeWitness(
 
 export function activateEmployeeWitness(state: BlackpayPrivateState, employeeIdHex: string): BlackpayPrivateState {
   hexToBytes32(employeeIdHex, "employee identifier");
-  if (!state.employeeRecords[employeeIdHex]) {
-    throw new Error("Encrypted private state has no witness for this employee. Import a Blackpay backup or register the employee first.");
+  if (!state.employeeRecords?.[employeeIdHex]) {
+    throw new Error("Encrypted private state has no witness for this employee. Import an employee access package or Blackpay backup first.");
   }
   return { ...state, activeEmployeeId: employeeIdHex };
 }
@@ -85,7 +111,7 @@ export function upsertPayRunWitness(
   return {
     ...state,
     payRunRecords: {
-      ...state.payRunRecords,
+      ...(state.payRunRecords ?? {}),
       [payRunIdHex]: payRunRecordFromWitness(witness),
     },
     activePayRunId: payRunIdHex,
@@ -94,10 +120,66 @@ export function upsertPayRunWitness(
 
 export function activatePayRunWitness(state: BlackpayPrivateState, payRunIdHex: string): BlackpayPrivateState {
   hexToBytes32(payRunIdHex, "pay-run identifier");
-  if (!state.payRunRecords[payRunIdHex]) {
+  if (!state.payRunRecords?.[payRunIdHex]) {
     throw new Error("Encrypted private state has no witness for this pay run. Import a Blackpay backup or create the pay run first.");
   }
   return { ...state, activePayRunId: payRunIdHex };
+}
+
+export function setPrivateWorkspaceCurrency(state: BlackpayPrivateState, currencyCode: string): BlackpayPrivateState {
+  const normalized = currencyCode.trim().toUpperCase();
+  if (!normalized || normalized.length > 24) throw new Error("Private workspace currency code is invalid");
+  return { ...state, workspaceCurrencyCode: normalized };
+}
+
+function payslipKey(employeeIdHex: string, payRunIdHex: string): string {
+  hexToBytes32(employeeIdHex, "employee identifier");
+  hexToBytes32(payRunIdHex, "pay-run identifier");
+  return `${employeeIdHex}:${payRunIdHex}`;
+}
+
+export function upsertPortalPayslip(
+  state: BlackpayPrivateState,
+  payslip: BlackpayPortalPayslipRecord,
+): BlackpayPrivateState {
+  if (!Number.isSafeInteger(payslip.period) || payslip.period <= 0) throw new Error("Private payslip period is invalid");
+  if (payslip.grossMinor <= 0n || payslip.netMinor <= 0n || payslip.netMinor > payslip.grossMinor) {
+    throw new Error("Private payslip amounts are invalid");
+  }
+  const currencyCode = payslip.currencyCode.trim().toUpperCase();
+  if (!currencyCode || currencyCode.length > 24) throw new Error("Private payslip currency is invalid");
+  const key = payslipKey(payslip.employeeIdHex, payslip.payRunIdHex);
+  return {
+    ...state,
+    portalPayslips: {
+      ...(state.portalPayslips ?? {}),
+      [key]: { ...payslip, currencyCode },
+    },
+  };
+}
+
+export function updatePortalPayRunStatus(
+  state: BlackpayPrivateState,
+  payRunIdHex: string,
+  status: BlackpayPortalPayslipStatus,
+  paymentTransactionId?: string,
+): BlackpayPrivateState {
+  hexToBytes32(payRunIdHex, "pay-run identifier");
+  const next: Record<string, BlackpayPortalPayslipRecord> = {};
+  for (const [key, payslip] of Object.entries(state.portalPayslips ?? {})) {
+    next[key] = payslip.payRunIdHex === payRunIdHex
+      ? { ...payslip, status, ...(paymentTransactionId ? { paymentTransactionId } : {}) }
+      : payslip;
+  }
+  return { ...state, portalPayslips: next };
+}
+
+export function listPortalPayslips(state: BlackpayPrivateState, employeeIdHex: string): BlackpayPortalPayslipRecord[] {
+  hexToBytes32(employeeIdHex, "employee identifier");
+  return Object.values(state.portalPayslips ?? {})
+    .filter((payslip) => payslip.employeeIdHex === employeeIdHex)
+    .sort((a, b) => b.period - a.period || b.createdAt - a.createdAt)
+    .map((payslip) => ({ ...payslip }));
 }
 
 export function blackpayWitnesses() {
@@ -107,13 +189,13 @@ export function blackpayWitnesses() {
     },
     getEmployeeRecord(context: { privateState: BlackpayPrivateState }) {
       const key = context.privateState.activeEmployeeId;
-      const record = key ? context.privateState.employeeRecords[key] : undefined;
+      const record = key ? context.privateState.employeeRecords?.[key] : undefined;
       if (!record) throw new Error("Private employee witness is not loaded for this circuit call");
       return [context.privateState, record] as const;
     },
     getPayRunRecord(context: { privateState: BlackpayPrivateState }) {
       const key = context.privateState.activePayRunId;
-      const record = key ? context.privateState.payRunRecords[key] : undefined;
+      const record = key ? context.privateState.payRunRecords?.[key] : undefined;
       if (!record) throw new Error("Private pay-run witness is not loaded for this circuit call");
       return [context.privateState, record] as const;
     },
