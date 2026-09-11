@@ -5,24 +5,25 @@ export const dynamic = "force-dynamic";
 
 export function GET() {
   const config = getMidnightPublicConfig();
-  const contractConfigured = Boolean(config.contractAddress);
-  const servicesConfigured = Boolean(config.indexerUrl && config.nodeUrl && config.proofServerUrl);
 
   return NextResponse.json(
     {
       service: "blackpay",
-      version: "0.2.0",
+      appVersion: "0.4.3",
+      protocolVersion: 2,
       network: config.network,
-      contractConfigured,
-      servicesConfigured,
+      canonicalContractConfigured: Boolean(config.contractAddress),
+      infrastructure: "lace-wallet-managed",
+      settlement: "register-fund-claim",
+      employeeAccess: "v3-encrypted",
       privacyMode: "fail-closed",
       milestones: {
         foundation: "coded-verify",
-        payroll: "coded-verify",
+        payroll: "protocol-v2-coded-verify",
         selectiveDisclosure: "coded-verify",
-        employeePortal: "coded-verify",
+        employeePortal: "v2-claim-coded-verify",
         compliance: "coded-verify",
-        sdk: "coded-verify",
+        sdk: "protocol-v2-coded-verify",
       },
     },
     {
