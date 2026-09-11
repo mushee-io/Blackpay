@@ -227,7 +227,8 @@ export function BlackpayApp() {
       const txIds: string[] = [];
       for (const payment of prepared.payments) {
         const result = await gateway.fundPayRunPayment({ payRunIdHex, employeeIdHex: payment.employeeId });
-        if (result.alreadyFunded) alreadyFunded += 1;
+        const wasAlreadyFunded = result.alreadyFunded === true || result.transactionId === "already-funded";
+        if (wasAlreadyFunded) alreadyFunded += 1;
         else {
           newlyFunded += 1;
           if (result.transactionId) txIds.push(result.transactionId);
