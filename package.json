@@ -1,15 +1,16 @@
 {
   "name": "blackpay",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.0.0"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "build:live": "bash scripts/compile-compact.sh && npm run compact:assets && next build",
+    "build": "npm run build:live",
+    "build:next": "next build",
+    "build:live": "bash scripts/compile-compact.sh && npm run compact:assets && npm run build:next",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "compact:compile": "compact compile contract/payroll.compact contract/build",
@@ -19,7 +20,7 @@
     "privacy:check": "node scripts/check-private-leaks.mjs",
     "live:verify": "node scripts/verify-live.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=high",
-    "release:check": "npm run security:audit && npm run check && npm run build",
+    "release:check": "npm run security:audit && npm run check && npm run build:live",
     "check": "npm run typecheck && npm run privacy:check"
   },
   "dependencies": {
@@ -46,7 +47,6 @@
     "@types/node": "22.18.3",
     "@types/react": "19.1.12",
     "@types/react-dom": "19.1.9",
-    "esbuild": "0.25.9",
     "typescript": "5.9.2"
   },
   "overrides": {
