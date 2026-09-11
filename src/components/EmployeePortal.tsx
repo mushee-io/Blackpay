@@ -249,7 +249,7 @@ export function EmployeePortal() {
       <section className="hero employeeHero">
         <p className="kicker">YOUR PAY. YOUR PROOFS. NOT EVERYONE ELSE'S BUSINESS.</p>
         <h2>See your payslips privately.</h2>
-        <p className="heroCopy">Your employer gives you one encrypted access package. Blackpay verifies it against your connected Lace shielded wallet and the live employee commitment. After import, your records stay encrypted in your own wallet-scoped browser storage.</p>
+        <p className="heroCopy">Your employer sends encrypted access packages containing your current private payroll records. Blackpay verifies each package against your connected Lace shielded wallet and the live employee commitment. Imported records stay encrypted in your wallet-scoped browser storage, and their pay-run status can refresh from the live ledger. A brand-new payslip requires an updated encrypted package until Blackpay adds a private delivery inbox.</p>
       </section>
 
       <section className="statusGrid">
@@ -274,9 +274,9 @@ export function EmployeePortal() {
         </form>
 
         <section className="panel wide">
-          <div className="panelNumber">02 / FIRST ACCESS</div>
+          <div className="panelNumber">02 / EMPLOYEE ACCESS</div>
           <h3>Import employee access</h3>
-          <p>This one-time encrypted package contains only your employee witness and private payslips. Blackpay rejects it if the connected Lace shielded wallet does not match the payout commitment your employer originally registered.</p>
+          <p>Each encrypted package contains only your employee witness and the private payslips included by your employer at export time. Blackpay rejects the package if the connected Lace shielded wallet does not match the payout commitment your employer originally registered.</p>
           <div className="twoCol">
             <label>Employee access package<input type="file" accept="application/json,.json" onChange={(event) => void loadAccessFile(event.target.files?.[0] ?? null)} /></label>
             <label>Access package password<input type="password" value={accessPassword} onChange={(event) => setAccessPassword(event.target.value)} placeholder="Password shared by employer" autoComplete="off" /></label>
