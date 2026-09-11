@@ -256,95 +256,156 @@ export function BlackpayApp() {
   const contractStatus = runtimeReady ? "V2 LIVE / JOINED" : connected ? "V2 DEPLOY REQUIRED" : "WAITING";
 
   return (
-    <main className="shell">
-      <header className="topbar">
-        <div><div className="eyebrow">MIDNIGHT / CONFIDENTIAL PAYROLL V2</div><h1>BLACKPAY</h1></div>
-        <div className="topActions">
-          <a className="secondary" href="/employee">EMPLOYEE PORTAL</a>
-          <span className="network">{config.network.toUpperCase()}</span>
-          {connected ? <span className="walletConnected">{connected.name}</span> : wallets.length <= 1 ? (
-            <button className="primary" disabled={busy} onClick={() => connect(wallets[0]?.id)}>CONNECT WALLET</button>
-          ) : wallets.map((wallet) => <button className="secondary" disabled={busy} key={wallet.id} onClick={() => connect(wallet.id)}>{wallet.name}</button>)}
+    <main className="blackpayAppShell">
+      <aside className="appSidebar">
+        <a className="brandLockup" href="#top" aria-label="Blackpay dashboard home">
+          <span className="brandGlyph" aria-hidden="true"><span /><span /><span /></span>
+          <span className="brandText">Blackpay<small>Preview</small></span>
+        </a>
+
+        <div className="sidebarGroup">
+          <span className="sidebarLabel">Quick access</span>
+          <nav className="sidebarNav" aria-label="Blackpay employer navigation">
+            <a className="active" href="#top"><span className="navIcon">⌂</span>Dashboard</a>
+            <a href="#workspace"><span className="navIcon">◫</span>Workspace</a>
+            <a href="#employees"><span className="navIcon">◎</span>Employees</a>
+          </nav>
         </div>
-      </header>
 
-      <section className="hero">
-        <p className="kicker">PRIVATE SALARIES. CONTRACT-BOUND SETTLEMENT.</p>
-        <h2>Payroll without broadcasting payroll.</h2>
-        <p className="heroCopy">Blackpay v2 commits each private employee payment, funds that exact claim into Midnight contract custody, and lets the bound employee wallet claim it once. There is no arbitrary transaction-hash finalization path.</p>
-      </section>
+        <div className="sidebarGroup">
+          <span className="sidebarLabel">Payroll</span>
+          <nav className="sidebarNav">
+            <a href="#pay-runs"><span className="navIcon">↗</span>Pay runs</a>
+            <a href="#proofs"><span className="navIcon">◇</span>Proofs</a>
+            <a href="/employee"><span className="navIcon">↳</span>Employee portal</a>
+          </nav>
+        </div>
 
-      <section className="statusGrid">
-        <article className="statusCard"><span>WALLET</span><strong>{connected ? "CONNECTED" : wallets.length ? "READY" : "NOT DETECTED"}</strong></article>
-        <article className="statusCard"><span>NETWORK</span><strong>{config.network.toUpperCase()}</strong></article>
-        <article className="statusCard"><span>CONTRACT</span><strong>{contractStatus}</strong></article>
-        <article className="statusCard"><span>SETTLEMENT</span><strong>CLAIM BOUND</strong></article>
-      </section>
-
-      {(notice || failure) && <section className={failure ? "message error" : "message success"}>{failure || notice}</section>}
-      {connected && !runtimeReady && <section className="message error">WALLET ONLY — NO BLACKPAY V2 RUNTIME IS ACTIVE. The legacy v1 contract cannot be upgraded in place. Open the runtime below and deploy a new Blackpay v2 contract. <a href="#midnight-runtime">OPEN V2 RUNTIME ↓</a></section>}
-
-      <section className="workspaceGrid">
-        <form className="panel" onSubmit={createWorkspace}>
-          <div className="panelNumber">01</div><h3>Employer workspace</h3><p>Company and currency labels are hashed before the contract call.</p>
-          <label>Company name<input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Company" /></label>
-          <label>Currency / token label<input value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} placeholder="USDM" /></label>
-          <label>Frequency<select value={frequency} onChange={(e) => setFrequency(e.target.value as PayrollFrequency)}><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option></select></label>
-          <button className="primary full" disabled={busy || !liveReady}>CREATE WORKSPACE</button>
-        </form>
-
-        <form className="panel" onSubmit={addEmployee}>
-          <div className="panelNumber">02</div><h3>Private employee</h3><p>Salary, full payout address, payout coin key, and salt stay private. Only their commitment is public.</p>
-          <label>Employee reference<input value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="Internal employee ID" /></label>
-          <label>Salary in minor units<input inputMode="numeric" value={salaryMinor} onChange={(e) => setSalaryMinor(e.target.value)} placeholder="325000" /></label>
-          <label>Shielded recipient<input value={shieldedRecipient} onChange={(e) => setShieldedRecipient(e.target.value)} placeholder="Midnight shielded address" /></label>
-          <button className="primary full" disabled={busy || !liveReady}>COMMIT EMPLOYEE</button>
-        </form>
-
-        <form className="panel wide" onSubmit={createPayRun}>
-          <div className="panelNumber">03</div><h3>Contract-bound confidential pay run</h3>
-          <p>Each row becomes a private payment commitment. Approval is impossible until every expected claim is registered and the rolling claim root matches the private pay-run commitment.</p>
-          <div className="twoCol">
-            <label>Pay run reference<input value={payRunId} onChange={(e) => setPayRunId(e.target.value)} placeholder="2026-09" /></label>
-            <label>Period number<input inputMode="numeric" value={payPeriod} onChange={(e) => setPayPeriod(e.target.value)} placeholder="202609" /></label>
+        <div className="sidebarWalletCard">
+          <div className="walletMiniTop">
+            <span className={connected ? "statusDot online" : "statusDot"} />
+            <span>{connected ? connected.name : "Wallet not connected"}</span>
           </div>
-          <label>Payroll token (Lace shielded balance)
-            <select value={payrollTokenType} onChange={(e) => setPayrollTokenType(e.target.value)}>
-              <option value="">SELECT REAL SHIELDED TOKEN</option>
-              {tokenBalances.map((entry) => <option value={entry.type} key={entry.type}>{shortToken(entry.type)} · {entry.balance.toString()}</option>)}
-              {payrollTokenType && !tokenBalances.some((entry) => entry.type === payrollTokenType) && <option value={payrollTokenType}>{shortToken(payrollTokenType)} · CONFIGURED</option>}
-            </select>
-          </label>
-          <label>Payments<textarea value={paymentRows} onChange={(e) => setPaymentRows(e.target.value)} rows={6} placeholder="employee-001 | 325000 | shielded-address" /></label>
-          <div className="buttonRow">
-            <button className="primary" disabled={busy || !liveReady || !payrollTokenType}>CREATE PAY RUN</button>
-            <button className="secondary" type="button" disabled={busy || !liveReady} onClick={approveCurrentPayRun}>APPROVE</button>
-            <button className="secondary" type="button" disabled={busy || !liveReady || !payrollTokenType} onClick={fundCurrentPayRun}>FUND CONTRACT CLAIMS</button>
+          <strong>{runtimeReady ? "Runtime ready" : "Private payroll locked"}</strong>
+          <small>{config.network.toUpperCase()} · BLACKPAY V2</small>
+          <a href="#midnight-runtime">Open runtime →</a>
+        </div>
+      </aside>
+
+      <section className="appMain" id="top">
+        <header className="appTopbar">
+          <div className="topbarTitle">
+            <span className="eyebrow">Employer workspace</span>
+            <h1>Dashboard</h1>
           </div>
-          <p>After funding, export a fresh employee access package. The employee claims the contract-held salary from the Employee Portal; the claim is fixed to the registered payout key and can settle only once.</p>
-        </form>
+          <div className="topActions">
+            <a className="secondary" href="/employee">Employee portal</a>
+            <span className="network">{config.network.toUpperCase()}</span>
+            {connected ? <span className="walletConnected">{connected.name}</span> : wallets.length <= 1 ? (
+              <button className="primary" disabled={busy} onClick={() => connect(wallets[0]?.id)}>Connect wallet</button>
+            ) : wallets.map((wallet) => <button className="secondary" disabled={busy} key={wallet.id} onClick={() => connect(wallet.id)}>{wallet.name}</button>)}
+          </div>
+        </header>
 
-        <form className="panel" onSubmit={proveIncome}>
-          <div className="panelNumber">04</div><h3>Proof of income</h3><p>Prove salary ≥ threshold against the registered private record without disclosing the exact salary.</p>
-          <label>Employee reference<input value={proofEmployeeId} onChange={(e) => setProofEmployeeId(e.target.value)} placeholder="Internal employee ID" /></label>
-          <label>Threshold in minor units<input inputMode="numeric" value={proofThreshold} onChange={(e) => setProofThreshold(e.target.value)} placeholder="250000" /></label>
-          <button className="primary full" disabled={busy || !liveReady}>GENERATE PROOF</button>
-        </form>
+        <section className="hero appHero">
+          <div className="heroGlow heroGlowOne" />
+          <div className="heroGlow heroGlowTwo" />
+          <div className="heroContent">
+            <span className="heroPill">✦ Private payroll on Midnight</span>
+            <p className="kicker">PRIVATE SALARIES · PUBLIC PROOF</p>
+            <h2>Payroll onchain.<br /><span>Privacy by default.</span></h2>
+            <p className="heroCopy">Create confidential pay runs, fund exact employee claims, and let the bound employee wallet claim salary without publishing compensation data.</p>
+            <div className="heroActions">
+              <a className="primary" href="#pay-runs">Create pay run</a>
+              <a className="secondary" href="#midnight-runtime">Open runtime</a>
+            </div>
+          </div>
+          <div className="heroVisual" aria-hidden="true">
+            <div className="heroVisualCard heroVisualCardBack"><span>PROOF</span><strong>PRIVATE</strong></div>
+            <div className="heroVisualCard heroVisualCardFront"><span>PAYROLL</span><strong>{runtimeReady ? "LIVE" : "READY"}</strong><i>●</i></div>
+          </div>
+        </section>
 
-        <article className="panel protocolPanel">
-          <div className="panelNumber">05</div><h3>V2 settlement boundary</h3>
-          <dl>
-            <div><dt>Exact salary</dt><dd>PRIVATE</dd></div>
-            <div><dt>Payout wallet</dt><dd>PRIVATE / COMMITTED</dd></div>
-            <div><dt>Payment set</dt><dd>PRIVATE / ROOT COMMITTED</dd></div>
-            <div><dt>Funding</dt><dd>CONTRACT CUSTODY</dd></div>
-            <div><dt>Employee claim</dt><dd>ONE TIME</dd></div>
-            <div><dt>Arbitrary tx finalize</dt><dd>REMOVED</dd></div>
-          </dl>
-        </article>
+        <section className="statusGrid" aria-label="Blackpay runtime status">
+          <article className="statusCard statusPink"><span>Wallet</span><strong>{connected ? "Connected" : wallets.length ? "Ready" : "Not detected"}</strong><small>Midnight Lace</small></article>
+          <article className="statusCard statusBlue"><span>Contract</span><strong>{contractStatus}</strong><small>Protocol v2</small></article>
+          <article className="statusCard statusPurple"><span>Settlement</span><strong>Claim bound</strong><small>One-time employee claim</small></article>
+          <article className="statusCard statusCream"><span>Network</span><strong>{config.network.toUpperCase()}</strong><small>Testnet environment</small></article>
+        </section>
+
+        {(notice || failure) && <section className={failure ? "message error" : "message success"}>{failure || notice}</section>}
+        {connected && !runtimeReady && <section className="message error">Wallet connected, but no Blackpay v2 runtime is active. Deploy a new v2 contract or join a verified one below. <a href="#midnight-runtime">Open runtime ↓</a></section>}
+
+        <section className="sectionIntro">
+          <span className="sectionPill">Payroll workspace</span>
+          <div><h2>Everything private payroll needs.</h2><p>Move from workspace setup to employee commitments, confidential pay runs, and zero-knowledge proofs without exposing salary data.</p></div>
+        </section>
+
+        <section className="workspaceGrid">
+          <form className="panel" id="workspace" onSubmit={createWorkspace}>
+            <div className="panelNumber">01</div><h3>Employer workspace</h3><p>Create the private payroll workspace and set the payroll frequency. Company and currency labels are hashed before submission.</p>
+            <label>Company name<input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Company" /></label>
+            <label>Currency / token label<input value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} placeholder="USDM" /></label>
+            <label>Frequency<select value={frequency} onChange={(e) => setFrequency(e.target.value as PayrollFrequency)}><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option></select></label>
+            <button className="primary full" disabled={busy || !liveReady}>Create workspace</button>
+          </form>
+
+          <form className="panel" id="employees" onSubmit={addEmployee}>
+            <div className="panelNumber">02</div><h3>Private employee</h3><p>Add an employee without publishing salary, payout address, payout key, or private salt.</p>
+            <label>Employee reference<input value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="Internal employee ID" /></label>
+            <label>Salary in minor units<input inputMode="numeric" value={salaryMinor} onChange={(e) => setSalaryMinor(e.target.value)} placeholder="325000" /></label>
+            <label>Shielded recipient<input value={shieldedRecipient} onChange={(e) => setShieldedRecipient(e.target.value)} placeholder="Midnight shielded address" /></label>
+            <button className="primary full" disabled={busy || !liveReady}>Commit employee</button>
+          </form>
+
+          <form className="panel wide payRunPanel" id="pay-runs" onSubmit={createPayRun}>
+            <div className="panelNumber">03</div>
+            <div className="panelHeadingRow"><div><h3>Confidential pay run</h3><p>Register exact private payment claims, approve the committed payment set, then fund contract custody for employee claim.</p></div><span className="privacyBadge">Private by design</span></div>
+            <div className="twoCol">
+              <label>Pay run reference<input value={payRunId} onChange={(e) => setPayRunId(e.target.value)} placeholder="2026-09" /></label>
+              <label>Period number<input inputMode="numeric" value={payPeriod} onChange={(e) => setPayPeriod(e.target.value)} placeholder="202609" /></label>
+            </div>
+            <label>Payroll token (Lace shielded balance)
+              <select value={payrollTokenType} onChange={(e) => setPayrollTokenType(e.target.value)}>
+                <option value="">Select real shielded token</option>
+                {tokenBalances.map((entry) => <option value={entry.type} key={entry.type}>{shortToken(entry.type)} · {entry.balance.toString()}</option>)}
+                {payrollTokenType && !tokenBalances.some((entry) => entry.type === payrollTokenType) && <option value={payrollTokenType}>{shortToken(payrollTokenType)} · configured</option>}
+              </select>
+            </label>
+            <label>Payments<textarea value={paymentRows} onChange={(e) => setPaymentRows(e.target.value)} rows={6} placeholder="employee-001 | 325000 | shielded-address" /></label>
+            <div className="flowSteps" aria-label="Pay run lifecycle">
+              <span><b>1</b>Create</span><i>→</i><span><b>2</b>Approve</span><i>→</i><span><b>3</b>Fund</span><i>→</i><span><b>4</b>Employee claims</span>
+            </div>
+            <div className="buttonRow">
+              <button className="primary" disabled={busy || !liveReady || !payrollTokenType}>Create pay run</button>
+              <button className="secondary" type="button" disabled={busy || !liveReady} onClick={approveCurrentPayRun}>Approve</button>
+              <button className="secondary" type="button" disabled={busy || !liveReady || !payrollTokenType} onClick={fundCurrentPayRun}>Fund contract claims</button>
+            </div>
+            <p>After funding, export a fresh employee access package. The employee claims the contract-held salary from the Employee Portal; the claim is fixed to the registered payout key and can settle only once.</p>
+          </form>
+
+          <form className="panel proofPanel" id="proofs" onSubmit={proveIncome}>
+            <div className="panelNumber">04</div><h3>Proof of income</h3><p>Prove salary meets a threshold without revealing the exact salary.</p>
+            <label>Employee reference<input value={proofEmployeeId} onChange={(e) => setProofEmployeeId(e.target.value)} placeholder="Internal employee ID" /></label>
+            <label>Threshold in minor units<input inputMode="numeric" value={proofThreshold} onChange={(e) => setProofThreshold(e.target.value)} placeholder="250000" /></label>
+            <button className="primary full" disabled={busy || !liveReady}>Generate proof</button>
+          </form>
+
+          <article className="panel protocolPanel">
+            <div className="panelNumber">05</div><h3>Privacy boundary</h3><p>What stays hidden, what is committed, and what the protocol enforces.</p>
+            <dl>
+              <div><dt>Exact salary</dt><dd>Private</dd></div>
+              <div><dt>Payout wallet</dt><dd>Private / committed</dd></div>
+              <div><dt>Payment set</dt><dd>Root committed</dd></div>
+              <div><dt>Funding</dt><dd>Contract custody</dd></div>
+              <div><dt>Employee claim</dt><dd>One time</dd></div>
+              <div><dt>Arbitrary tx finalize</dt><dd>Removed</dd></div>
+            </dl>
+          </article>
+        </section>
+
+        <footer><span>BLACKPAY / PROTOCOL V2</span><span>Private salaries · Public proof · Contract-bound settlement</span></footer>
       </section>
-
-      <footer><span>BLACKPAY / PROTOCOL V2</span><span>NO MOCK TRANSACTIONS · NO ARBITRARY SETTLEMENT FINALIZATION</span></footer>
     </main>
   );
 }
