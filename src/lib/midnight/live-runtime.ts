@@ -458,9 +458,6 @@ export async function issuePortalPayslip(params: {
       : payRun.status === current.generated.PayRunStatus.Approved
         ? "approved"
         : "pending";
-  if (status === "paid" && !params.paymentTransactionId?.trim()) {
-    throw new Error("A paid payslip requires the real settlement transaction ID");
-  }
   const payslip: BlackpayPortalPayslipRecord = {
     employeeIdHex: params.employeeIdHex,
     payRunIdHex: params.payRunIdHex,
