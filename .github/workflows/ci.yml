@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: blackpay-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   app:
     runs-on: ubuntu-latest
@@ -37,21 +41,24 @@ jobs:
         run: |
           compact update 0.31
           compact --version
-      - name: Compile Blackpay contract
-        run: compact compile contract/payroll.compact contract/build
+      - name: Compile payroll and invoice contracts
+        run: bash scripts/compile-compact.sh
       - name: Assert generated contract assets
         shell: bash
         run: |
-          test -d contract/build
           test -s contract/build/contract/index.js
           test -s contract/build/contract/index.d.ts
+          test -s contract/invoice-build/contract/index.js
+          test -s contract/invoice-build/contract/index.d.ts
           test -n "$(find contract/build -type f -print -quit)"
-          find contract/build -maxdepth 3 -type f -print | sort
+          test -n "$(find contract/invoice-build -type f -print -quit)"
       - name: Upload compiled Compact artifacts
         uses: actions/upload-artifact@v4
         with:
           name: blackpay-compact-0.31.1
-          path: contract/build
+          path: |
+            contract/build
+            contract/invoice-build
           if-no-files-found: error
           retention-days: 14
 
@@ -65,11 +72,18 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
-      - name: Download exact compiled contract
+      - name: Download exact compiled contracts
         uses: actions/download-artifact@v4
         with:
           name: blackpay-compact-0.31.1
-          path: contract/build
+          path: contract
+      - name: Normalize downloaded artifact paths
+        shell: bash
+        run: |
+          if [ -d contract/contract/build ]; then mv contract/contract/build contract/build; fi
+          if [ -d contract/contract/invoice-build ]; then mv contract/contract/invoice-build contract/invoice-build; fi
+          test -s contract/build/contract/index.js
+          test -s contract/invoice-build/contract/index.js
       - name: Prepare generated runtime and proving assets
         run: npm run compact:assets
       - name: Assert hosted Preview assets
@@ -77,10 +91,15 @@ jobs:
         run: |
           test -s src/generated/blackpay/index.js
           test -s src/generated/blackpay/index.d.ts
+          test -s src/generated/invoice/index.js
+          test -s src/generated/invoice/index.d.ts
           test -s public/compact/contract-info.json
+          test -s public/invoice/compact/contract-info.json
           test "$(find public/keys -type f | wc -l)" -eq 26
           test "$(find public/zkir -type f | wc -l)" -eq 26
-      - name: Build production app with generated Compact runtime
+          test "$(find public/invoice/keys -type f | wc -l)" -eq 8
+          test "$(find public/invoice/zkir -type f | wc -l)" -eq 8
+      - name: Build production app with generated Compact runtimes
         run: npm run build:next
       - name: Upload hosted runtime assets
         uses: actions/upload-artifact@v4
@@ -90,5 +109,6 @@ jobs:
             public/compact
             public/keys
             public/zkir
+            public/invoice
           if-no-files-found: error
           retention-days: 14

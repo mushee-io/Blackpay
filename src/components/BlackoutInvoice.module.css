@@ -1,0 +1,227 @@
+.page {
+  min-height: 100vh;
+  background: #070707;
+  color: #f2f0ea;
+  padding: 52px clamp(18px, 4vw, 68px) 84px;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.hero {
+  max-width: 1180px;
+  margin: 0 auto 38px;
+  padding-bottom: 34px;
+  border-bottom: 1px solid #303030;
+}
+
+.kicker {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: .18em;
+  color: #ff3b30;
+  margin-bottom: 18px;
+}
+
+.hero h1 {
+  max-width: 980px;
+  margin: 0;
+  font-size: clamp(40px, 6vw, 86px);
+  line-height: .92;
+  letter-spacing: -.055em;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.hero p {
+  max-width: 760px;
+  margin: 24px 0 0;
+  color: #aaa7a0;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.panel,
+.privacy,
+.notice,
+.failure {
+  max-width: 1180px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.panel {
+  border: 1px solid #2b2b2b;
+  margin-bottom: 16px;
+  background: #0d0d0d;
+  padding: 24px;
+}
+
+.panelHead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding-bottom: 18px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid #222;
+}
+
+.panelHead span,
+.proofLine span,
+.runtimeLine span,
+.privacy span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.panelHead span { color: #ff3b30; }
+
+.panelHead h2 {
+  margin: 0;
+  font-size: 21px;
+  letter-spacing: -.02em;
+  text-transform: uppercase;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.grid2 label {
+  display: grid;
+  gap: 8px;
+  color: #9d9a94;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+}
+
+.grid2 input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 46px;
+  border: 1px solid #303030;
+  border-radius: 0;
+  background: #090909;
+  color: #f2f0ea;
+  padding: 11px 12px;
+  outline: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.grid2 input:focus { border-color: #686868; }
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 20px;
+}
+
+.actions button,
+.secondary {
+  border: 1px solid #444;
+  border-radius: 0;
+  background: #f2f0ea;
+  color: #080808;
+  min-height: 42px;
+  padding: 0 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.actions button:hover:not(:disabled),
+.secondary:hover:not(:disabled) { background: #ff3b30; color: #fff; border-color: #ff3b30; }
+.actions button:disabled,
+.secondary:disabled { opacity: .34; cursor: not-allowed; }
+
+.secondary {
+  margin-top: 18px;
+  background: transparent;
+  color: #dedbd4;
+}
+
+.runtimeLine,
+.proofLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid #222;
+  margin-top: 22px;
+  padding-top: 14px;
+}
+
+.runtimeLine span:first-child { color: #9c9993; }
+.runtimeLine span:last-child { color: #ff3b30; }
+
+.lifecycle {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+  gap: 10px;
+  align-items: center;
+  margin: 8px 0 26px;
+}
+
+.lifecycle b {
+  display: grid;
+  place-items: center;
+  min-height: 74px;
+  border: 1px solid #323232;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: .12em;
+}
+
+.lifecycle i { color: #ff3b30; font-style: normal; }
+
+.proofLine code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #d5d2ca;
+  text-align: right;
+  font-size: 11px;
+}
+
+.privacy {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid #2b2b2b;
+  margin-top: 16px;
+}
+
+.privacy div { padding: 22px; }
+.privacy div + div { border-left: 1px solid #2b2b2b; }
+.privacy span { color: #ff3b30; }
+.privacy p { color: #aaa7a0; margin: 10px 0 0; line-height: 1.6; font-size: 13px; }
+
+.notice,
+.failure {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border: 1px solid #343434;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.notice { color: #d8d5ce; }
+.failure { color: #ff6b63; border-color: #6d2420; }
+
+@media (max-width: 760px) {
+  .page { padding: 34px 14px 64px; }
+  .grid2, .privacy { grid-template-columns: 1fr; }
+  .privacy div + div { border-left: 0; border-top: 1px solid #2b2b2b; }
+  .lifecycle { grid-template-columns: 1fr; }
+  .lifecycle i { transform: rotate(90deg); text-align: center; }
+  .runtimeLine, .proofLine { align-items: flex-start; flex-direction: column; }
+  .proofLine code { text-align: left; }
+}

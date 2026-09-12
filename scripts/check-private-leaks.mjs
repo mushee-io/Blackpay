@@ -5,11 +5,11 @@ const ROOTS = ["src", "contract"];
 const TEXT_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs", ".compact"]);
 const forbidden = [
   { pattern: /console\.(log|debug|info|trace)\s*\(/, reason: "console output is forbidden in privacy-sensitive application code" },
-  { pattern: /NEXT_PUBLIC_[A-Z0-9_]*(SALARY|SALT|MNEMONIC|SEED|PRIVATE_KEY|WITNESS|PASSWORD|PAYOUT|PAYSLIP|ADMIN_SECRET)/, reason: "private values must never use NEXT_PUBLIC_*" },
+  { pattern: /NEXT_PUBLIC_[A-Z0-9_]*(SALARY|SALT|MNEMONIC|SEED|PRIVATE_KEY|WITNESS|PASSWORD|PAYOUT|PAYSLIP|ADMIN_SECRET|INVOICE_AMOUNT|PAYER_COMMITMENT|PAYER_AUTHORITY|SUPPLIER_KEY|FUNDED_COIN)/, reason: "private payroll or invoice values must never use NEXT_PUBLIC_*" },
   { pattern: /(demo|mock)[_-]?(proof|transaction|deployment)[_-]?fallback/i, reason: "fake proof/transaction fallbacks are forbidden" },
-  { pattern: /dangerouslySetInnerHTML\s*=/, reason: "raw HTML injection is forbidden on payroll surfaces" },
-  { pattern: /document\.cookie\b/, reason: "browser cookies are forbidden for Blackpay private payroll state" },
-  { pattern: /(localStorage|sessionStorage)\.setItem\s*\([^\n,]*(salary|salt|mnemonic|seed|private[_-]?key|witness|payout|payslip)/i, reason: "private payroll material must not be written to plaintext browser storage" },
+  { pattern: /dangerouslySetInnerHTML\s*=/, reason: "raw HTML injection is forbidden on privacy-sensitive surfaces" },
+  { pattern: /document\.cookie\b/, reason: "browser cookies are forbidden for Blackpay private state" },
+  { pattern: /(localStorage|sessionStorage)\.setItem\s*\([^\n,]*(salary|salt|mnemonic|seed|private[_-]?key|witness|payout|payslip|invoice[_-]?amount|payer[_-]?(commitment|authority)|supplier[_-]?(key|coin)|funded[_-]?coin)/i, reason: "private payroll or invoice material must not be written to plaintext browser storage" },
 ];
 
 async function walk(dir) {
@@ -18,7 +18,7 @@ async function walk(dir) {
   for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "build" || entry.name === "managed" || entry.name === "generated") continue;
+      if (entry.name === "build" || entry.name === "invoice-build" || entry.name === "managed" || entry.name === "generated") continue;
       files.push(...(await walk(path)));
     } else if (TEXT_EXTENSIONS.has(extname(entry.name))) {
       files.push(path);
