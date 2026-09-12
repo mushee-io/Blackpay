@@ -22,6 +22,8 @@ Private witness fields:
 - due date
 - invoice salt
 
+Payer authorization is deliberately separate from the invoice payload. The payer keeps a private 32-byte authority secret. Compact derives its payer commitment, and the invoice commits only to that derived value. The authority secret is never required by the supplier to create the invoice.
+
 Ledger-visible invoice data is restricted to:
 
 - invoice identifier
@@ -30,7 +32,7 @@ Ledger-visible invoice data is restricted to:
 - lifecycle status
 - action nullifiers
 
-The private witness is stored through the existing encrypted browser private-state architecture, under a separate invoice state ID and storage namespace.
+The private witness and any payer authority held by the current participant are stored through the existing encrypted browser private-state architecture, under a separate invoice state ID and storage namespace.
 
 ### Milestone 3 — Compact contract
 
@@ -40,13 +42,14 @@ The private witness is stored through the existing encrypted browser private-sta
 - `acceptInvoice`
 - `fundInvoice`
 - `payInvoice`
+- private payer-authority verification
 - invoice commitments
 - acceptance nullifiers
 - payment nullifiers
 - strict CREATED → ACCEPTED → FUNDED → PAID progression
 - duplicate identifier and replay protection
 
-Changing any protected witness field changes the Compact commitment.
+Changing any protected witness field changes the Compact commitment. `acceptInvoice` additionally proves that the private payer authority derives to the committed payer identity; knowing the invoice witness alone is insufficient to accept it.
 
 ### Milestone 4 — Lace + Midnight
 
@@ -80,6 +83,7 @@ The runtime records commitment-tree candidates returned by the real indexer and 
 - No database flag is treated as settlement proof.
 - Wrong network fails connection.
 - Missing private witness fails the action.
+- Missing or incorrect payer authority fails acceptance.
 - Missing funded-coin proof data fails settlement.
 - Replayed acceptance/payment actions fail on-chain.
 
