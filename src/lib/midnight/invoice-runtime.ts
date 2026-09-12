@@ -4,12 +4,17 @@ import { bytesToHex, hexToBytes32, randomBytes32 } from "./bytes";
 import { createCompiledInvoiceContract, type GeneratedInvoiceModule, type InvoiceLedgerView } from "./invoice-generated-contract";
 import {
   BLACKOUT_INVOICE_PRIVATE_STATE_ID,
+  activateInvoiceFundedCoin,
   activateInvoiceWitness,
+  attachInvoiceFundedCoin,
   createInitialInvoicePrivateState,
+  getInvoiceFundedCoin,
+  getInvoicePrivateRecord,
   upsertInvoiceWitness,
   type BlackoutInvoicePrivateState,
 } from "./invoice-private-state";
 import { buildInvoiceProviders, type InvoiceCircuitId, type InvoiceProviders } from "./invoice-providers";
+import { captureCommitmentCandidates } from "./settlement-indexer";
 import { assertWalletStillConnected, type ConnectedWallet } from "./wallet";
 import { assertInvoiceWitness, type ConfidentialInvoiceDraft, type PrivateInvoiceWitness } from "../invoice/types";
 
@@ -68,6 +73,7 @@ async function confirmLedger(
 }
 
 async function getPrivateState(current: LiveInvoiceRuntime): Promise<BlackoutInvoicePrivateState> {
+  await assertWalletStillConnected(current.wallet);
   current.providers.privateStateProvider.setContractAddress(current.contractAddress);
   const state = await current.providers.privateStateProvider.get(BLACKOUT_INVOICE_PRIVATE_STATE_ID);
   if (!state) throw new Error("Encrypted Blackout Invoice private state is missing");
@@ -75,6 +81,7 @@ async function getPrivateState(current: LiveInvoiceRuntime): Promise<BlackoutInv
 }
 
 async function setPrivateState(current: LiveInvoiceRuntime, state: BlackoutInvoicePrivateState): Promise<void> {
+  await assertWalletStillConnected(current.wallet);
   current.providers.privateStateProvider.setContractAddress(current.contractAddress);
   await current.providers.privateStateProvider.set(BLACKOUT_INVOICE_PRIVATE_STATE_ID, state);
 }
@@ -148,8 +155,7 @@ export async function createConfidentialInvoice(input: ConfidentialInvoiceDraft)
   assertInvoiceWitness(input.witness);
   const invoiceId = hexToBytes32(input.invoiceIdHex, "invoice id");
   const tokenColor = hexToBytes32(input.tokenColorHex, "invoice token color");
-  let state = await getPrivateState(current);
-  state = upsertInvoiceWitness(state, input.invoiceIdHex, input.witness);
+  const state = upsertInvoiceWitness(await getPrivateState(current), input.invoiceIdHex, input.witness);
   await setPrivateState(current, state);
 
   const expected = current.generated.pureCircuits.invoiceCommitment(
@@ -195,4 +201,78 @@ export async function acceptConfidentialInvoice(input: {
     return next.status === current.generated.InvoiceStatus.Accepted && equalBytes(next.acceptanceNullifier, expectedNullifier);
   });
   return { transactionId: result.public.txId, acceptanceNullifierHex: bytesToHex(expectedNullifier) };
+}
+
+export async function fundConfidentialInvoice(invoiceIdHex: string): Promise<{
+  transactionId: string;
+  candidateMtIndices: string[];
+}> {
+  const current = requireRuntime();
+  const invoiceId = hexToBytes32(invoiceIdHex, "invoice id");
+  let state = activateInvoiceWitness(await getPrivateState(current), invoiceIdHex);
+  await setPrivateState(current, state);
+  const record = getInvoicePrivateRecord(state, invoiceIdHex);
+  const before = await confirmLedger(current, "invoice funding precheck", (ledger) => ledger.invoices.member(invoiceId));
+  const entry = before.invoices.lookup(invoiceId);
+  if (entry.status === current.generated.InvoiceStatus.Paid) throw new Error("Invoice is already paid");
+  if (entry.status === current.generated.InvoiceStatus.Funded) {
+    const existing = getInvoiceFundedCoin(state, invoiceIdHex);
+    return { transactionId: "already-funded", candidateMtIndices: existing.mtIndexCandidates.map(String) };
+  }
+  if (entry.status !== current.generated.InvoiceStatus.Accepted) throw new Error("Invoice must be ACCEPTED before funding");
+
+  const fundingCoin = { nonce: randomBytes32(), color: new Uint8Array(entry.tokenColor), value: record.amountMinor };
+  const result = await submitCircuit(current, "fundInvoice", [invoiceId, fundingCoin]);
+  await confirmLedger(current, "invoice shielded funding", (ledger) =>
+    ledger.invoices.member(invoiceId) && ledger.invoices.lookup(invoiceId).status === current.generated.InvoiceStatus.Funded,
+  );
+  const candidates = await captureCommitmentCandidates(current.wallet.configuration.indexerUri, result.public.txId);
+  state = attachInvoiceFundedCoin(await getPrivateState(current), invoiceIdHex, {
+    nonceHex: bytesToHex(fundingCoin.nonce),
+    colorHex: bytesToHex(fundingCoin.color),
+    value: fundingCoin.value,
+    mtIndexCandidates: candidates,
+  });
+  await setPrivateState(current, state);
+  return { transactionId: result.public.txId, candidateMtIndices: candidates.map(String) };
+}
+
+export async function payConfidentialInvoice(input: {
+  invoiceIdHex: string;
+  nonceHex?: string;
+}): Promise<{ transactionId: string; paymentNullifierHex: string }> {
+  const current = requireRuntime();
+  const invoiceId = hexToBytes32(input.invoiceIdHex, "invoice id");
+  const paymentNonce = input.nonceHex ? hexToBytes32(input.nonceHex, "payment nonce") : randomBytes32();
+  let state = activateInvoiceWitness(await getPrivateState(current), input.invoiceIdHex);
+  const funded = getInvoiceFundedCoin(state, input.invoiceIdHex);
+  if (!funded.mtIndexCandidates.length) throw new Error("Invoice has no confirmed funded-coin candidates");
+
+  const ledgerBefore = await confirmLedger(current, "invoice payment precheck", (ledger) => ledger.invoices.member(invoiceId));
+  const entry = ledgerBefore.invoices.lookup(invoiceId);
+  if (entry.status === current.generated.InvoiceStatus.Paid) throw new Error("Invoice is already paid on-chain");
+  if (entry.status !== current.generated.InvoiceStatus.Funded) throw new Error("Invoice must be FUNDED before settlement");
+  const expectedNullifier = current.generated.pureCircuits.invoicePaymentNullifier(invoiceId, entry.commitment, paymentNonce);
+
+  let lastError: Error | undefined;
+  for (const mtIndex of funded.mtIndexCandidates) {
+    state = activateInvoiceFundedCoin(await getPrivateState(current), input.invoiceIdHex, mtIndex);
+    await setPrivateState(current, state);
+    try {
+      const result = await submitCircuit(current, "payInvoice", [invoiceId, paymentNonce]);
+      await confirmLedger(current, "invoice settlement", (ledger) => {
+        if (!ledger.invoices.member(invoiceId)) return false;
+        const next = ledger.invoices.lookup(invoiceId);
+        return next.status === current.generated.InvoiceStatus.Paid && equalBytes(next.paymentNullifier, expectedNullifier);
+      });
+      return { transactionId: result.public.txId, paymentNullifierHex: bytesToHex(expectedNullifier) };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const latest = await queryLedger(current).catch(() => null);
+      if (latest?.invoices.member(invoiceId) && latest.invoices.lookup(invoiceId).status === current.generated.InvoiceStatus.Paid) {
+        throw new Error("Invoice settled on-chain, but the submitting transaction ID could not be recovered. Refresh before retrying.");
+      }
+    }
+  }
+  throw lastError ?? new Error("No funded-coin commitment-tree candidate could prove invoice settlement");
 }
