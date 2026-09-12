@@ -1,0 +1,205 @@
+pragma language_version >= 0.22 && <= 0.23;
+import CompactStandardLibrary;
+
+export enum InvoiceStatus {
+    Created,
+    Accepted,
+    Funded,
+    Paid,
+    Cancelled,
+}
+
+struct PrivateInvoiceRecord {
+    amountMinor: Uint<64>;
+    taxMinor: Uint<64>;
+    payerCommitment: Bytes<32>;
+    supplierCoinPublicKey: Bytes<32>;
+    dueAt: Uint<64>;
+    salt: Bytes<32>;
+}
+
+export struct InvoiceEntry {
+    commitment: Bytes<32>;
+    tokenColor: Bytes<32>;
+    status: InvoiceStatus;
+    acceptanceNullifier: Bytes<32>;
+    paymentNullifier: Bytes<32>;
+}
+
+witness getInvoiceRecord(): PrivateInvoiceRecord;
+witness getInvoiceFundedCoin(): QualifiedShieldedCoinInfo;
+
+export ledger protocolVersion: Uint<32>;
+export ledger invoices: Map<Bytes<32>, InvoiceEntry>;
+export ledger usedNullifiers: Map<Bytes<32>, Boolean>;
+
+constructor() {
+    protocolVersion = 1;
+}
+
+export pure circuit invoiceCommitment(
+    invoiceId: Bytes<32>,
+    amountMinor: Uint<64>,
+    taxMinor: Uint<64>,
+    payerCommitment: Bytes<32>,
+    supplierCoinPublicKey: Bytes<32>,
+    dueAt: Uint<64>,
+    salt: Bytes<32>
+): Bytes<32> {
+    const amountHash = persistentHash<Uint<64>>(amountMinor);
+    const taxHash = persistentHash<Uint<64>>(taxMinor);
+    const dueHash = persistentHash<Uint<64>>(dueAt);
+    return persistentHash<Vector<8, Bytes<32>>>([
+        pad(32, "blackout:invoice:v1"),
+        invoiceId,
+        amountHash,
+        taxHash,
+        payerCommitment,
+        supplierCoinPublicKey,
+        dueHash,
+        salt
+    ]);
+}
+
+export pure circuit invoiceAcceptanceNullifier(
+    invoiceId: Bytes<32>,
+    commitment: Bytes<32>,
+    nonce: Bytes<32>
+): Bytes<32> {
+    return persistentHash<Vector<4, Bytes<32>>>([
+        pad(32, "blackout:invoice:accept:v1"),
+        invoiceId,
+        commitment,
+        nonce
+    ]);
+}
+
+export pure circuit invoicePaymentNullifier(
+    invoiceId: Bytes<32>,
+    commitment: Bytes<32>,
+    nonce: Bytes<32>
+): Bytes<32> {
+    return persistentHash<Vector<4, Bytes<32>>>([
+        pad(32, "blackout:invoice:pay:v1"),
+        invoiceId,
+        commitment,
+        nonce
+    ]);
+}
+
+circuit verifiedInvoice(invoiceId: Bytes<32>): [InvoiceEntry, PrivateInvoiceRecord] {
+    const id = disclose(invoiceId);
+    assert(invoices.member(id), "Invoice does not exist");
+    const entry = invoices.lookup(id);
+    const record = getInvoiceRecord();
+    const expected = invoiceCommitment(
+        invoiceId,
+        record.amountMinor,
+        record.taxMinor,
+        record.payerCommitment,
+        record.supplierCoinPublicKey,
+        record.dueAt,
+        record.salt
+    );
+    assert(expected == entry.commitment, "Private invoice data does not match the registered commitment");
+    return [entry, record];
+}
+
+export circuit createInvoice(invoiceId: Bytes<32>, tokenColor: Bytes<32>): [] {
+    const id = disclose(invoiceId);
+    assert(invoiceId != default<Bytes<32>>, "Invoice identifier must not be empty");
+    assert(tokenColor != default<Bytes<32>>, "Invoice token color must not be empty");
+    assert(!invoices.member(id), "Invoice already exists");
+
+    const record = getInvoiceRecord();
+    assert(record.amountMinor > 0, "Invoice amount must be greater than zero");
+    assert(record.taxMinor <= record.amountMinor, "Tax cannot exceed invoice amount");
+    assert(record.payerCommitment != default<Bytes<32>>, "Payer commitment must not be empty");
+    assert(record.supplierCoinPublicKey != default<Bytes<32>>, "Supplier payout key must not be empty");
+    assert(record.dueAt > 0, "Invoice due date must be greater than zero");
+
+    const commitment = invoiceCommitment(
+        invoiceId,
+        record.amountMinor,
+        record.taxMinor,
+        record.payerCommitment,
+        record.supplierCoinPublicKey,
+        record.dueAt,
+        record.salt
+    );
+
+    invoices.insert(id, disclose(InvoiceEntry {
+        commitment: commitment,
+        tokenColor: tokenColor,
+        status: InvoiceStatus.Created,
+        acceptanceNullifier: default<Bytes<32>>,
+        paymentNullifier: default<Bytes<32>>,
+    }));
+}
+
+export circuit acceptInvoice(invoiceId: Bytes<32>, nonce: Bytes<32>): Bytes<32> {
+    const [entry, record] = verifiedInvoice(invoiceId);
+    assert(record.amountMinor > 0, "Private invoice record is invalid");
+    assert(entry.status == InvoiceStatus.Created, "Only a created invoice may be accepted");
+
+    const nullifier = invoiceAcceptanceNullifier(invoiceId, entry.commitment, nonce);
+    const nullifierKey = disclose(nullifier);
+    assert(!usedNullifiers.member(nullifierKey), "Invoice acceptance nullifier already used");
+    usedNullifiers.insert(nullifierKey, true);
+
+    invoices.insert(disclose(invoiceId), disclose(InvoiceEntry {
+        commitment: entry.commitment,
+        tokenColor: entry.tokenColor,
+        status: InvoiceStatus.Accepted,
+        acceptanceNullifier: nullifier,
+        paymentNullifier: entry.paymentNullifier,
+    }));
+    return nullifier;
+}
+
+export circuit fundInvoice(invoiceId: Bytes<32>, fundingCoin: ShieldedCoinInfo): [] {
+    const [entry, record] = verifiedInvoice(invoiceId);
+    assert(entry.status == InvoiceStatus.Accepted, "Invoice must be accepted before funding");
+    assert(fundingCoin.color == entry.tokenColor, "Funding coin token does not match invoice token");
+    assert(fundingCoin.value == record.amountMinor as Uint<128>, "Funding coin amount does not match the private invoice amount");
+
+    receiveShielded(disclose(fundingCoin));
+
+    invoices.insert(disclose(invoiceId), disclose(InvoiceEntry {
+        commitment: entry.commitment,
+        tokenColor: entry.tokenColor,
+        status: InvoiceStatus.Funded,
+        acceptanceNullifier: entry.acceptanceNullifier,
+        paymentNullifier: entry.paymentNullifier,
+    }));
+}
+
+export circuit payInvoice(invoiceId: Bytes<32>, nonce: Bytes<32>): ShieldedCoinInfo {
+    const [entry, record] = verifiedInvoice(invoiceId);
+    assert(entry.status == InvoiceStatus.Funded, "Invoice must be funded before payment");
+
+    const nullifier = invoicePaymentNullifier(invoiceId, entry.commitment, nonce);
+    const nullifierKey = disclose(nullifier);
+    assert(!usedNullifiers.member(nullifierKey), "Invoice payment nullifier already used");
+
+    const fundedCoin = getInvoiceFundedCoin();
+    assert(fundedCoin.color == entry.tokenColor, "Funded coin token does not match invoice token");
+    assert(fundedCoin.value == record.amountMinor as Uint<128>, "Funded coin amount does not match the private invoice amount");
+
+    const sent = sendShielded(
+        disclose(fundedCoin),
+        left<ZswapCoinPublicKey, ContractAddress>(ZswapCoinPublicKey { bytes: disclose(record.supplierCoinPublicKey) }),
+        disclose(record.amountMinor) as Uint<128>
+    );
+
+    usedNullifiers.insert(nullifierKey, true);
+    invoices.insert(disclose(invoiceId), disclose(InvoiceEntry {
+        commitment: entry.commitment,
+        tokenColor: entry.tokenColor,
+        status: InvoiceStatus.Paid,
+        acceptanceNullifier: entry.acceptanceNullifier,
+        paymentNullifier: nullifier,
+    }));
+
+    return sent.sent;
+}
