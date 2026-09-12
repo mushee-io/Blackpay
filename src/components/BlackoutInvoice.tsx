@@ -6,6 +6,7 @@ import { connectedShieldedCoinPublicKeyHex } from "@/lib/midnight/shielded-addre
 import {
   acceptConfidentialInvoice,
   createConfidentialInvoice,
+  derivePayerCommitmentHex,
   fundConfidentialInvoice,
   getBlackoutInvoiceRuntimeStatus,
   initializeBlackoutInvoice,
@@ -36,7 +37,8 @@ export function BlackoutInvoice() {
   const [contractAddress, setContractAddress] = useState("");
   const [invoiceIdHex, setInvoiceIdHex] = useState(() => randomHex32());
   const [tokenColorHex, setTokenColorHex] = useState("");
-  const [payerCommitmentHex, setPayerCommitmentHex] = useState(() => randomHex32());
+  const [payerAuthoritySecretHex, setPayerAuthoritySecretHex] = useState(() => randomHex32());
+  const [payerCommitmentHex, setPayerCommitmentHex] = useState("");
   const [supplierCoinPublicKeyHex, setSupplierCoinPublicKeyHex] = useState("");
   const [saltHex, setSaltHex] = useState(() => randomHex32());
   const [amountMinor, setAmountMinor] = useState("1000000");
@@ -109,6 +111,15 @@ export function BlackoutInvoice() {
     return witness;
   }
 
+  async function derivePayerIdentity() {
+    await run(async () => {
+      const secret = cleanHex32(payerAuthoritySecretHex, "Payer authority secret");
+      const commitment = await derivePayerCommitmentHex(secret);
+      setPayerCommitmentHex(commitment);
+      setNotice("Payer commitment derived locally from private payer authority. The secret is not part of the invoice commitment payload.");
+    });
+  }
+
   async function createInvoice() {
     await run(async () => {
       const result = await createConfidentialInvoice({
@@ -124,9 +135,13 @@ export function BlackoutInvoice() {
 
   async function acceptInvoice() {
     await run(async () => {
-      const result = await acceptConfidentialInvoice({ invoiceIdHex: cleanHex32(invoiceIdHex, "Invoice id"), witness: requireWitness() });
+      const result = await acceptConfidentialInvoice({
+        invoiceIdHex: cleanHex32(invoiceIdHex, "Invoice id"),
+        witness: requireWitness(),
+        payerAuthoritySecretHex: cleanHex32(payerAuthoritySecretHex, "Payer authority secret"),
+      });
       setLastTransactionId(result.transactionId);
-      setNotice(`ACCEPTED confirmed. Nullifier ${result.acceptanceNullifierHex.slice(0, 16)}…`);
+      setNotice(`ACCEPTED by committed payer authority. Nullifier ${result.acceptanceNullifierHex.slice(0, 16)}…`);
     });
   }
 
@@ -148,11 +163,12 @@ export function BlackoutInvoice() {
 
   function rotateInvoiceSecrets() {
     setInvoiceIdHex(randomHex32());
-    setPayerCommitmentHex(randomHex32());
+    setPayerAuthoritySecretHex(randomHex32());
+    setPayerCommitmentHex("");
     setSaltHex(randomHex32());
     setCommitmentHex("");
     setLastTransactionId("");
-    setNotice("New local invoice identifiers generated. Nothing has been submitted.");
+    setNotice("New local invoice identifiers and payer authority generated. Derive the payer commitment before creation.");
   }
 
   return (
@@ -187,12 +203,16 @@ export function BlackoutInvoice() {
           <label>Midnight token color / public<input value={tokenColorHex} onChange={(event) => setTokenColorHex(event.target.value)} placeholder="64 hex chars" /></label>
           <label>Amount minor / private<input inputMode="numeric" value={amountMinor} onChange={(event) => setAmountMinor(event.target.value)} /></label>
           <label>Tax minor / private<input inputMode="numeric" value={taxMinor} onChange={(event) => setTaxMinor(event.target.value)} /></label>
-          <label>Payer commitment / committed<input value={payerCommitmentHex} onChange={(event) => setPayerCommitmentHex(event.target.value)} /></label>
+          <label>Payer commitment / committed<input value={payerCommitmentHex} onChange={(event) => setPayerCommitmentHex(event.target.value)} placeholder="Derived from payer authority" /></label>
+          <label>Payer authority secret / payer-only<input type="password" value={payerAuthoritySecretHex} onChange={(event) => setPayerAuthoritySecretHex(event.target.value)} autoComplete="off" /></label>
           <label>Supplier shielded payout key / private<input value={supplierCoinPublicKeyHex} onChange={(event) => setSupplierCoinPublicKeyHex(event.target.value)} /></label>
           <label>Due time Unix seconds / private<input inputMode="numeric" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label>
           <label>Invoice salt / private<input value={saltHex} onChange={(event) => setSaltHex(event.target.value)} /></label>
         </div>
-        <button className={styles.secondary} disabled={busy} onClick={rotateInvoiceSecrets}>GENERATE NEW LOCAL INVOICE</button>
+        <div className={styles.actions}>
+          <button className={styles.secondary} disabled={busy} onClick={derivePayerIdentity}>DERIVE PAYER COMMITMENT</button>
+          <button className={styles.secondary} disabled={busy} onClick={rotateInvoiceSecrets}>GENERATE NEW LOCAL INVOICE</button>
+        </div>
       </section>
 
       <section className={styles.panel}>
@@ -209,8 +229,8 @@ export function BlackoutInvoice() {
       </section>
 
       <section className={styles.privacy}>
-        <div><span>PUBLIC</span><p>Invoice id, commitment, token color, lifecycle status, action nullifiers.</p></div>
-        <div><span>PRIVATE</span><p>Amount, tax, payer source data, supplier payout key, due date and salt remain in encrypted witness state except where the underlying settlement primitive necessarily consumes them.</p></div>
+        <div><span>PUBLIC</span><p>Invoice id, commitment, token color, lifecycle status and action nullifiers.</p></div>
+        <div><span>PRIVATE</span><p>Amount, tax, payer authority secret, supplier payout key, due date and salt stay in encrypted witness state. The payer secret is independently checked against the committed payer identity before ACCEPTED can be reached.</p></div>
       </section>
 
       {(notice || failure) && <div className={failure ? styles.failure : styles.notice}>{failure || notice}</div>}
