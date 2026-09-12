@@ -25,13 +25,14 @@ export type InvoiceFundedCoinRecord = {
 
 export type BlackoutInvoicePrivateState = {
   invoiceRecords: Record<string, InvoicePrivateRecord>;
+  payerAuthoritySecrets: Record<string, Uint8Array>;
   fundedCoins: Record<string, InvoiceFundedCoinRecord>;
   activeInvoiceId?: string;
   activeFundedInvoiceId?: string;
 };
 
 export function createInitialInvoicePrivateState(): BlackoutInvoicePrivateState {
-  return { invoiceRecords: {}, fundedCoins: {} };
+  return { invoiceRecords: {}, payerAuthoritySecrets: {}, fundedCoins: {} };
 }
 
 function normalizeInvoiceId(invoiceIdHex: string): string {
@@ -68,6 +69,24 @@ export function upsertInvoiceWitness(
   return {
     ...state,
     invoiceRecords: { ...state.invoiceRecords, [key]: existing ?? incoming },
+    activeInvoiceId: key,
+  };
+}
+
+export function upsertPayerAuthoritySecret(
+  state: BlackoutInvoicePrivateState,
+  invoiceIdHex: string,
+  secretHex: string,
+): BlackoutInvoicePrivateState {
+  const key = normalizeInvoiceId(invoiceIdHex);
+  const secret = hexToBytes32(secretHex, "payer authority secret");
+  const existing = state.payerAuthoritySecrets[key];
+  if (existing && bytesToHex(existing) !== bytesToHex(secret)) {
+    throw new Error("Existing payer authority secret cannot be replaced for this invoice");
+  }
+  return {
+    ...state,
+    payerAuthoritySecrets: { ...state.payerAuthoritySecrets, [key]: existing ?? secret },
     activeInvoiceId: key,
   };
 }
@@ -142,6 +161,12 @@ export function invoiceWitnesses() {
       const record = key ? context.privateState.invoiceRecords[key] : undefined;
       if (!record) throw new Error("Private invoice witness is not active for this circuit call");
       return [context.privateState, record] as const;
+    },
+    getPayerSecret(context: { privateState: BlackoutInvoicePrivateState }) {
+      const key = context.privateState.activeInvoiceId;
+      const secret = key ? context.privateState.payerAuthoritySecrets[key] : undefined;
+      if (!secret) throw new Error("Private payer authority is not active for this invoice");
+      return [context.privateState, new Uint8Array(secret)] as const;
     },
     getInvoiceFundedCoin(context: { privateState: BlackoutInvoicePrivateState }) {
       const key = context.privateState.activeFundedInvoiceId;
