@@ -27,6 +27,7 @@ export struct InvoiceEntry {
 }
 
 witness getInvoiceRecord(): PrivateInvoiceRecord;
+witness getPayerSecret(): Bytes<32>;
 witness getInvoiceFundedCoin(): QualifiedShieldedCoinInfo;
 
 export ledger protocolVersion: Uint<32>;
@@ -35,6 +36,13 @@ export ledger usedNullifiers: Map<Bytes<32>, Boolean>;
 
 constructor() {
     protocolVersion = 1;
+}
+
+export pure circuit derivePayerCommitment(secret: Bytes<32>): Bytes<32> {
+    return persistentHash<Vector<2, Bytes<32>>>([
+        pad(32, "blackout:payer:v1"),
+        secret
+    ]);
 }
 
 export pure circuit invoiceCommitment(
@@ -141,6 +149,7 @@ export circuit acceptInvoice(invoiceId: Bytes<32>, nonce: Bytes<32>): Bytes<32> 
     const [entry, record] = verifiedInvoice(invoiceId);
     assert(record.amountMinor > 0, "Private invoice record is invalid");
     assert(entry.status == InvoiceStatus.Created, "Only a created invoice may be accepted");
+    assert(derivePayerCommitment(getPayerSecret()) == record.payerCommitment, "Only the committed payer may accept this invoice");
 
     const nullifier = invoiceAcceptanceNullifier(invoiceId, entry.commitment, nonce);
     const nullifierKey = disclose(nullifier);
