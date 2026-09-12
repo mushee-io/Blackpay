@@ -1,7 +1,12 @@
 import { deployContract, findDeployedContract, submitCallTx } from "@midnight-ntwrk/midnight-js-contracts";
 import type { ContractAddress } from "@midnight-ntwrk/midnight-js-protocol/compact-runtime";
 import { bytesToHex, hexToBytes32, randomBytes32 } from "./bytes";
-import { createCompiledInvoiceContract, type GeneratedInvoiceModule, type InvoiceLedgerView } from "./invoice-generated-contract";
+import {
+  createCompiledInvoiceContract,
+  loadGeneratedInvoiceModule,
+  type GeneratedInvoiceModule,
+  type InvoiceLedgerView,
+} from "./invoice-generated-contract";
 import {
   BLACKOUT_INVOICE_PRIVATE_STATE_ID,
   activateInvoiceFundedCoin,
@@ -11,6 +16,7 @@ import {
   getInvoiceFundedCoin,
   getInvoicePrivateRecord,
   upsertInvoiceWitness,
+  upsertPayerAuthoritySecret,
   type BlackoutInvoicePrivateState,
 } from "./invoice-private-state";
 import { buildInvoiceProviders, type InvoiceCircuitId, type InvoiceProviders } from "./invoice-providers";
@@ -99,6 +105,12 @@ async function submitCircuit(current: LiveInvoiceRuntime, circuitId: InvoiceCirc
   return result as unknown as FinalizedCall;
 }
 
+export async function derivePayerCommitmentHex(secretHex: string): Promise<string> {
+  const secret = hexToBytes32(secretHex, "payer authority secret");
+  const generated = runtime?.generated ?? await loadGeneratedInvoiceModule();
+  return bytesToHex(generated.pureCircuits.derivePayerCommitment(secret));
+}
+
 export async function initializeBlackoutInvoice(params: {
   wallet: ConnectedWallet;
   privateStatePassword: string;
@@ -180,13 +192,21 @@ export async function createConfidentialInvoice(input: ConfidentialInvoiceDraft)
 export async function acceptConfidentialInvoice(input: {
   invoiceIdHex: string;
   witness: PrivateInvoiceWitness;
+  payerAuthoritySecretHex: string;
   nonceHex?: string;
 }): Promise<{ transactionId: string; acceptanceNullifierHex: string }> {
   const current = requireRuntime();
   assertInvoiceWitness(input.witness);
   const invoiceId = hexToBytes32(input.invoiceIdHex, "invoice id");
+  const payerSecret = hexToBytes32(input.payerAuthoritySecretHex, "payer authority secret");
+  const payerCommitment = current.generated.pureCircuits.derivePayerCommitment(payerSecret);
+  const expectedPayerCommitment = hexToBytes32(input.witness.payerCommitmentHex, "payer commitment");
+  if (!equalBytes(payerCommitment, expectedPayerCommitment)) {
+    throw new Error("Payer authority secret does not match the committed payer identity");
+  }
   const nonce = input.nonceHex ? hexToBytes32(input.nonceHex, "acceptance nonce") : randomBytes32();
   let state = upsertInvoiceWitness(await getPrivateState(current), input.invoiceIdHex, input.witness);
+  state = upsertPayerAuthoritySecret(state, input.invoiceIdHex, input.payerAuthoritySecretHex);
   state = activateInvoiceWitness(state, input.invoiceIdHex);
   await setPrivateState(current, state);
 
