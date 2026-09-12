@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { BlackoutInvoice } from "@/components/BlackoutInvoice";
+import { BlackoutInvoiceClientOnly } from "@/components/BlackoutInvoiceClientOnly";
 
 export const metadata: Metadata = {
   title: "Blackout Invoice",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function BlackoutInvoicePage() {
-  return <BlackoutInvoice />;
+  return <BlackoutInvoiceClientOnly />;
 }
