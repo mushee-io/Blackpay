@@ -15,13 +15,23 @@ export type InvoicePrivateRecord = {
   salt: Uint8Array;
 };
 
+export type InvoiceFundedCoinRecord = {
+  nonce: Uint8Array;
+  color: Uint8Array;
+  value: bigint;
+  mtIndexCandidates: bigint[];
+  activeMtIndex?: bigint;
+};
+
 export type BlackoutInvoicePrivateState = {
   invoiceRecords: Record<string, InvoicePrivateRecord>;
+  fundedCoins: Record<string, InvoiceFundedCoinRecord>;
   activeInvoiceId?: string;
+  activeFundedInvoiceId?: string;
 };
 
 export function createInitialInvoicePrivateState(): BlackoutInvoicePrivateState {
-  return { invoiceRecords: {} };
+  return { invoiceRecords: {}, fundedCoins: {} };
 }
 
 function normalizeInvoiceId(invoiceIdHex: string): string {
@@ -75,6 +85,56 @@ export function getInvoicePrivateRecord(state: BlackoutInvoicePrivateState, invo
   return record;
 }
 
+export function attachInvoiceFundedCoin(
+  state: BlackoutInvoicePrivateState,
+  invoiceIdHex: string,
+  coin: { nonceHex: string; colorHex: string; value: bigint; mtIndexCandidates: bigint[] },
+): BlackoutInvoicePrivateState {
+  const key = normalizeInvoiceId(invoiceIdHex);
+  const invoice = state.invoiceRecords[key];
+  if (!invoice) throw new Error("Private invoice witness is required before storing funded state");
+  if (coin.value !== invoice.amountMinor) throw new Error("Funded value does not match the private invoice amount");
+  const candidates = [...new Set(coin.mtIndexCandidates.map((value) => BigInt(value)))];
+  if (candidates.length === 0 || candidates.length > 32 || candidates.some((value) => value < 0n || value > ((1n << 64n) - 1n))) {
+    throw new Error("Funded commitment-tree candidates are invalid");
+  }
+  return {
+    ...state,
+    fundedCoins: {
+      ...state.fundedCoins,
+      [key]: {
+        nonce: hexToBytes32(coin.nonceHex, "funded coin nonce"),
+        color: hexToBytes32(coin.colorHex, "funded coin color"),
+        value: coin.value,
+        mtIndexCandidates: candidates,
+      },
+    },
+  };
+}
+
+export function getInvoiceFundedCoin(state: BlackoutInvoicePrivateState, invoiceIdHex: string): InvoiceFundedCoinRecord {
+  const key = normalizeInvoiceId(invoiceIdHex);
+  const funded = state.fundedCoins[key];
+  if (!funded) throw new Error("Invoice is not funded in encrypted private state");
+  return funded;
+}
+
+export function activateInvoiceFundedCoin(
+  state: BlackoutInvoicePrivateState,
+  invoiceIdHex: string,
+  mtIndex: bigint,
+): BlackoutInvoicePrivateState {
+  const key = normalizeInvoiceId(invoiceIdHex);
+  const funded = state.fundedCoins[key];
+  if (!funded) throw new Error("Invoice funded state is missing");
+  if (!funded.mtIndexCandidates.some((candidate) => candidate === mtIndex)) throw new Error("Funded tree index is not an allowed candidate");
+  return {
+    ...state,
+    activeFundedInvoiceId: key,
+    fundedCoins: { ...state.fundedCoins, [key]: { ...funded, activeMtIndex: mtIndex } },
+  };
+}
+
 export function invoiceWitnesses() {
   return {
     getInvoiceRecord(context: { privateState: BlackoutInvoicePrivateState }) {
@@ -82,6 +142,17 @@ export function invoiceWitnesses() {
       const record = key ? context.privateState.invoiceRecords[key] : undefined;
       if (!record) throw new Error("Private invoice witness is not active for this circuit call");
       return [context.privateState, record] as const;
+    },
+    getInvoiceFundedCoin(context: { privateState: BlackoutInvoicePrivateState }) {
+      const key = context.privateState.activeFundedInvoiceId;
+      const funded = key ? context.privateState.fundedCoins[key] : undefined;
+      if (!funded || funded.activeMtIndex === undefined) throw new Error("A funded invoice coin candidate is not active");
+      return [context.privateState, {
+        nonce: new Uint8Array(funded.nonce),
+        color: new Uint8Array(funded.color),
+        value: funded.value,
+        mt_index: funded.activeMtIndex,
+      }] as const;
     },
   };
 }
