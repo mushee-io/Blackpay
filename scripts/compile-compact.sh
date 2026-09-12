@@ -10,8 +10,10 @@ if ! command -v compact >/dev/null 2>&1; then
 fi
 
 compact update 0.31
-rm -rf contract/build
+rm -rf contract/build contract/invoice-build
+
 compact compile contract/payroll.compact contract/build
+compact compile contract/invoice.compact contract/invoice-build
 
 test -f contract/build/contract/index.js
 for circuit in \
@@ -24,4 +26,12 @@ do
   test -f "contract/build/zkir/${circuit}.bzkir"
 done
 
-echo "Blackpay protocol v2 Compact 0.31.x build assets verified."
+test -f contract/invoice-build/contract/index.js
+for circuit in createInvoice acceptInvoice fundInvoice payInvoice
+do
+  test -f "contract/invoice-build/keys/${circuit}.prover"
+  test -f "contract/invoice-build/keys/${circuit}.verifier"
+  test -f "contract/invoice-build/zkir/${circuit}.bzkir"
+done
+
+echo "Blackpay payroll v2 + Blackout Invoice v1 Compact 0.31.x build assets verified."
