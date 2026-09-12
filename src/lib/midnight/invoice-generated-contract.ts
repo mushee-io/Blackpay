@@ -22,6 +22,7 @@ export type GeneratedInvoiceModule = {
   Contract: new (...args: unknown[]) => unknown;
   ledger(state: unknown): InvoiceLedgerView;
   pureCircuits: {
+    derivePayerCommitment(secret: Uint8Array): Uint8Array;
     invoiceCommitment(
       invoiceId: Uint8Array,
       amountMinor: bigint,
@@ -42,7 +43,8 @@ function validateModule(value: unknown): GeneratedInvoiceModule {
   const module = value as Partial<GeneratedInvoiceModule>;
   if (typeof module.Contract !== "function") throw new Error("Generated Blackout Invoice Contract export is missing");
   if (typeof module.ledger !== "function") throw new Error("Generated Blackout Invoice ledger decoder is missing");
-  if (!module.pureCircuits || typeof module.pureCircuits.invoiceCommitment !== "function" ||
+  if (!module.pureCircuits || typeof module.pureCircuits.derivePayerCommitment !== "function" ||
+      typeof module.pureCircuits.invoiceCommitment !== "function" ||
       typeof module.pureCircuits.invoiceAcceptanceNullifier !== "function" ||
       typeof module.pureCircuits.invoicePaymentNullifier !== "function") {
     throw new Error("Generated Blackout Invoice pure circuits are missing");
